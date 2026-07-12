@@ -90,6 +90,7 @@ canvas.pixelated { image-rendering: pixelated; image-rendering: crisp-edges; }
 
 /* playtest overlay */
 #play-overlay { position: fixed; inset: 0; background: #000d; z-index: 100; display: flex; align-items: center; justify-content: center; }
+#play-overlay[hidden] { display: none; }
 #play-frame-wrap { width: min(92vw, 1100px); height: min(90vh, 760px); display: flex; flex-direction: column; background: #000; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 #play-bar { display: flex; align-items: center; gap: 8px; background: var(--bg2); padding: 5px 10px; border-bottom: 1px solid var(--line); }
 #play-frame { flex: 1; border: none; background: #000; }
