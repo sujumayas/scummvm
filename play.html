@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Grog Player</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  #game { width: 100vw; height: 100vh; }
+  #boot-msg { color: #5fcde4; font: 14px monospace; padding: 2em; }
+</style>
+</head>
+<body>
+<div id="game"><div id="boot-msg">Loading…</div></div>
+<script src="engine/core.js"></script>
+<script src="engine/render.js"></script>
+<script src="engine/walk.js"></script>
+<script src="engine/audio.js"></script>
+<script src="engine/script.js"></script>
+<script src="engine/ui.js"></script>
+<script src="engine/boot.js"></script>
+<script>
+(async function () {
+  const params = new URLSearchParams(location.search);
+  const msg = document.getElementById('boot-msg');
+  let engine = null;
+
+  async function boot(project) {
+    if (engine) { engine.destroy(); }
+    try {
+      engine = await Grog.boot(project, '#game', { debugWalk: params.has('debugwalk') });
+      window.engine = engine; // for debugging / Studio
+    } catch (e) {
+      msg.textContent = 'Failed to start: ' + e.message;
+      console.error(e);
+    }
+  }
+
+  // 1. embedded project (single-file exports set window.GROG_PROJECT)
+  if (window.GROG_PROJECT) { boot(window.GROG_PROJECT); return; }
+  // 2. Studio playtest: project arrives via postMessage
+  if (params.has('studio')) {
+    msg.textContent = 'Waiting for Grog Studio…';
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'grog:project') boot(e.data.project);
+    });
+    if (window.parent !== window) window.parent.postMessage({ type: 'grog:ready' }, '*');
+    return;
+  }
+  // 3. ?project=url
+  boot(params.get('project') || 'demo/engine-room.grog.json');
+})();
+</script>
+</body>
+</html>
