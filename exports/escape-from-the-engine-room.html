@@ -1,0 +1,1817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Escape from the Engine Room</title>
+<style>html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden}#game{width:100vw;height:100vh}</style>
+</head>
+<body>
+<div id="game"></div>
+<script>
+/* ==== engine/core.js ==== */
+/* Grog Engine — core: namespace, palette, state, main loop, input, rooms, saves.
+   Zero dependencies. Files extend Grog.Engine.prototype and are concatenation-safe. */
+(function () {
+  'use strict';
+  const Grog = (window.Grog = window.Grog || {});
+
+  Grog.VERSION = '1.0.0';
+
+  // DawnBringer-32 palette. Sprite/paint color indices: 0-9 then a-v. '.' = transparent.
+  Grog.PALETTE = [
+    '#000000', '#222034', '#45283c', '#663931', '#8f563b', '#df7126', '#d9a066', '#eec39a',
+    '#fbf236', '#99e550', '#6abe30', '#37946e', '#4b692f', '#524b24', '#323c39', '#3f3f74',
+    '#306082', '#5b6ee1', '#639bff', '#5fcde4', '#cbdbfc', '#ffffff', '#9badb7', '#847e87',
+    '#696a6a', '#595652', '#76428a', '#ac3232', '#d95763', '#d77bba', '#8f974a', '#8a6f30',
+  ];
+  Grog.COLOR_CHARS = '0123456789abcdefghijklmnopqrstuv';
+  Grog.colorIndex = (ch) => Grog.COLOR_CHARS.indexOf(ch);
+  Grog.color = (i) => Grog.PALETTE[i] || '#ff00ff';
+
+  // Native room/view geometry (SCUMM-style 320x200: room 320x144, UI below).
+  Grog.W = 320;
+  Grog.H = 200;
+  Grog.VIEW_H = 144;      // room viewport height
+  Grog.SENT_Y = 145;      // sentence line
+  Grog.UI_Y = 156;        // verb/inventory area top
+  Grog.TEXT_SCALE = 2;    // text layer runs at 2x for readability
+
+  // Deterministic RNG (mulberry32) for seeded paint scatter etc.
+  Grog.rng = function (seed) {
+    let a = seed >>> 0;
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+
+  Grog.clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  Grog.dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+  Grog.pointInPoly = function (x, y, pts) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
+      const xi = pts[i], yi = pts[i + 1], xj = pts[j], yj = pts[j + 1];
+      if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+
+  Grog.Engine = class Engine {
+    constructor(project, container, opts = {}) {
+      this.project = project;
+      this.opts = opts;
+      this.container = typeof container === 'string' ? document.querySelector(container) : container;
+
+      // --- runtime state (what gets saved) ---
+      this.state = {
+        flags: Object.assign({}, project.flags || {}),
+        vars: Object.assign({}, project.vars || {}),
+        inventory: [],
+        room: null,
+        rooms: {},        // per-room overrides: { hotspotId: {hidden,state}, actors:{id:{x,y,dir,hidden}} }
+        dialogOnce: {},    // used dialog options
+        actorRooms: {},    // actorId -> roomId placement overrides
+        playtime: 0,
+      };
+
+      // --- transient ---
+      this.actors = {};       // live actor objects
+      this.room = null;       // current room def
+      this.camera = { x: 0 };
+      this.cutscenes = 0;     // >0 = input locked to script
+      this.hover = null;      // hovered hotspot/actor/item descriptor
+      this.verb = null;       // selected verb id
+      this.heldItem = null;   // first noun for use/give sentences
+      this.sentence = '';
+      this.dialog = null;     // active dialog ui state
+      this.speech = [];       // active speech bubbles [{actorId,text,color,until,x,y}]
+      this.menu = null;       // save/load overlay state
+      this.toast = null;      // transient message
+      this.fade = { v: 0, target: 0, speed: 0 }; // 0 = visible, 1 = black
+      this.mouse = { x: 0, y: 0, inView: false };
+      this.time = 0;
+      this._acc = 0;
+      this._saveKey = 'grog_' + (project.meta && project.meta.title || 'game').replace(/\W+/g, '_').toLowerCase();
+      this._ended = false;
+
+      this._buildDom();
+      this._bindInput();
+      this.audio = new Grog.Audio();
+      this._initVerbs();
+    }
+
+    _buildDom() {
+      const c = this.container;
+      c.innerHTML = '';
+      c.style.position = 'relative';
+      c.style.background = '#000';
+      c.style.overflow = 'hidden';
+      c.style.cursor = 'none';
+      c.style.userSelect = 'none';
+      // low-res game layer
+      this.cv = document.createElement('canvas');
+      this.cv.width = Grog.W; this.cv.height = Grog.H;
+      this.ctx = this.cv.getContext('2d');
+      // 2x text/UI overlay layer
+      this.tv = document.createElement('canvas');
+      this.tv.width = Grog.W * Grog.TEXT_SCALE; this.tv.height = Grog.H * Grog.TEXT_SCALE;
+      this.tctx = this.tv.getContext('2d');
+      // composited display canvas
+      this.dv = document.createElement('canvas');
+      this.dv.style.position = 'absolute';
+      this.dv.style.left = '50%'; this.dv.style.top = '50%';
+      this.dv.style.transform = 'translate(-50%,-50%)';
+      this.dv.style.imageRendering = 'pixelated';
+      this.dctx = this.dv.getContext('2d');
+      c.appendChild(this.dv);
+      // offscreen room buffer (rooms can be wider than the view: scrolling)
+      this.rv = document.createElement('canvas');
+      this.rctx = this.rv.getContext('2d');
+      this._resize();
+      this._onResize = () => this._resize();
+      window.addEventListener('resize', this._onResize);
+    }
+
+    _resize() {
+      const cw = this.container.clientWidth || Grog.W, ch = this.container.clientHeight || Grog.H;
+      const s = Math.max(1, Math.floor(Math.min(cw / Grog.W, ch / Grog.H)));
+      const fit = Math.min(cw / Grog.W, ch / Grog.H);
+      this.scale = fit >= 1 ? s : fit; // integer scale when possible, shrink-to-fit otherwise
+      this.dv.width = Math.round(Grog.W * this.scale * Grog.TEXT_SCALE) / Grog.TEXT_SCALE * 1; // keep simple
+      this.dv.width = Grog.W * Grog.TEXT_SCALE;
+      this.dv.height = Grog.H * Grog.TEXT_SCALE;
+      this.dv.style.width = Math.round(Grog.W * this.scale) + 'px';
+      this.dv.style.height = Math.round(Grog.H * this.scale) + 'px';
+    }
+
+    _bindInput() {
+      const toNative = (e) => {
+        const r = this.dv.getBoundingClientRect();
+        return {
+          x: Grog.clamp(((e.clientX - r.left) / r.width) * Grog.W, 0, Grog.W - 1),
+          y: Grog.clamp(((e.clientY - r.top) / r.height) * Grog.H, 0, Grog.H - 1),
+        };
+      };
+      this.dv.addEventListener('mousemove', (e) => {
+        const p = toNative(e);
+        this.mouse.x = p.x; this.mouse.y = p.y; this.mouse.inView = p.y < Grog.VIEW_H;
+      });
+      this.dv.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const p = toNative(e);
+        this.mouse.x = p.x; this.mouse.y = p.y;
+        this.onClick(p.x, p.y, e.button === 2);
+      });
+      this.dv.addEventListener('contextmenu', (e) => e.preventDefault());
+      this._onKey = (e) => this.onKey(e);
+      window.addEventListener('keydown', this._onKey);
+    }
+
+    destroy() {
+      this._ended = true;
+      window.removeEventListener('resize', this._onResize);
+      window.removeEventListener('keydown', this._onKey);
+      if (this.audio) this.audio.stopMusic();
+      cancelAnimationFrame(this._raf);
+    }
+
+    // ---------- lifecycle ----------
+    async start() {
+      const meta = this.project.meta || {};
+      this._makeActors();
+      // the loop must run before any script awaits (say/sleep resolve off this.time)
+      this._last = performance.now();
+      const loop = (t) => {
+        if (this._ended) return;
+        const dt = Math.min(0.1, (t - this._last) / 1000);
+        this._last = t;
+        this.update(dt);
+        this.render();
+        this._raf = requestAnimationFrame(loop);
+      };
+      this._raf = requestAnimationFrame(loop);
+      const start = meta.start || {};
+      await this.gotoRoom(start.room || Object.keys(this.project.rooms)[0], start.x, start.y, { instant: true });
+      if (this.project.scripts && this.project.scripts.$intro) this.runScript(this.project.scripts.$intro);
+    }
+
+    _makeActors() {
+      const P = this.project;
+      for (const id in P.actors || {}) {
+        const def = P.actors[id];
+        this.actors[id] = {
+          id, def,
+          x: 0, y: 0, dir: 'D',
+          scale: 1, roomId: null, hidden: false,
+          anim: 'idle', frame: 0, ftime: 0,
+          path: null, pathI: 0, speed: def.speed || 42,
+          talking: false, walkResolve: null,
+        };
+      }
+      this.playerId = P.player || Object.keys(P.actors || {})[0];
+    }
+
+    player() { return this.actors[this.playerId]; }
+
+    update(dt) {
+      this.time += dt;
+      this.state.playtime += dt;
+      this.updateWalks(dt);
+      this.updateAnims(dt);
+      this.updateSpeech();
+      this.updateHover();
+      // fade
+      if (this.fade.v !== this.fade.target) {
+        const d = Math.sign(this.fade.target - this.fade.v) * this.fade.speed * dt;
+        this.fade.v = Grog.clamp(this.fade.v + d, 0, 1);
+      }
+      // camera follows player
+      const room = this.room;
+      if (room) {
+        const rw = room.w || Grog.W;
+        if (rw > Grog.W) {
+          const p = this.player();
+          if (p && p.roomId === this.state.room) {
+            const target = Grog.clamp(p.x - Grog.W / 2, 0, rw - Grog.W);
+            this.camera.x += (target - this.camera.x) * Math.min(1, dt * 4);
+          }
+        } else this.camera.x = 0;
+      }
+    }
+
+    // ---------- rooms ----------
+    roomState(roomId) {
+      const rs = this.state.rooms;
+      if (!rs[roomId]) rs[roomId] = { hotspots: {}, actors: {} };
+      return rs[roomId];
+    }
+    hotspotState(roomId, hid) {
+      const rs = this.roomState(roomId);
+      if (!rs.hotspots[hid]) rs.hotspots[hid] = {};
+      return rs.hotspots[hid];
+    }
+    hotspotVisible(h) {
+      const hs = this.hotspotState(this.state.room, h.id);
+      if (hs.hidden !== undefined) return !hs.hidden;
+      return !h.hidden;
+    }
+    hotspotCurState(h) {
+      const hs = this.hotspotState(this.state.room, h.id);
+      return hs.state !== undefined ? hs.state : h.state;
+    }
+
+    async gotoRoom(roomId, x, y, opts = {}) {
+      const P = this.project;
+      const room = P.rooms[roomId];
+      if (!room) { console.warn('No room', roomId); return; }
+      if (!opts.instant) await this.fadeTo(1, 2.5);
+      this.state.room = roomId;
+      this.room = room;
+      this.camera.x = 0;
+      this.speech = [];
+      this.buildWalkGrid(room);
+      this.prerenderRoom(room);
+      // place actors that belong to this room
+      for (const id in this.actors) {
+        const a = this.actors[id];
+        const override = this.state.actorRooms[id];
+        const placed = (room.actors || {})[id];
+        const inRoom = override !== undefined ? override === roomId : !!placed;
+        a.roomId = inRoom ? roomId : (override !== undefined ? override : a.roomId === roomId ? null : a.roomId);
+        if (inRoom && placed && !a._moved) { a.x = placed.x; a.y = placed.y; a.dir = placed.dir || 'D'; a.hidden = !!placed.hidden; }
+        const ast = this.roomState(roomId).actors[id];
+        if (ast) { if (ast.x !== undefined) { a.x = ast.x; a.y = ast.y; } if (ast.hidden !== undefined) a.hidden = ast.hidden; }
+      }
+      // player placement
+      const p = this.player();
+      if (p) {
+        p.roomId = roomId;
+        this.state.actorRooms[this.playerId] = roomId;
+        if (x !== undefined) { p.x = x; p.y = y; }
+        p.path = null; p.anim = 'idle'; p.frame = 0;
+        if (opts.dir) p.dir = opts.dir;
+        p.scale = this.scaleAt(p.y);
+      }
+      if (room.music !== undefined) this.audio.playMusic(room.music ? (P.music || {})[room.music] : null, room.music);
+      if (!opts.instant) await this.fadeTo(0, 2.5);
+      // enter scripts run as their own cutscene; don't block the room switch on them
+      if (room.enter && !opts.noEnter) this.runScript(room.enter);
+    }
+
+    fadeTo(target, speed) {
+      this.fade.target = target; this.fade.speed = speed || 2.5;
+      return new Promise((res) => {
+        const check = () => {
+          if (this._ended || this.fade.v === this.fade.target) return res();
+          requestAnimationFrame(check);
+        };
+        check();
+      });
+    }
+
+    // ---------- saves ----------
+    saveSlots() {
+      const out = [];
+      for (let i = 0; i < 3; i++) {
+        try {
+          const raw = localStorage.getItem(this._saveKey + '_' + i);
+          out.push(raw ? JSON.parse(raw).meta : null);
+        } catch (e) { out.push(null); }
+      }
+      return out;
+    }
+    saveGame(slot) {
+      const p = this.player();
+      const data = {
+        meta: { when: Date.now(), room: this.room ? this.room.name : '', playtime: Math.round(this.state.playtime) },
+        state: this.state,
+        player: p ? { x: p.x, y: p.y, dir: p.dir } : null,
+      };
+      try { localStorage.setItem(this._saveKey + '_' + slot, JSON.stringify(data)); this.showToast('Game saved.'); }
+      catch (e) { this.showToast('Save failed: ' + e.message); }
+    }
+    async loadGame(slot) {
+      let data;
+      try { data = JSON.parse(localStorage.getItem(this._saveKey + '_' + slot)); } catch (e) { }
+      if (!data) { this.showToast('Empty slot.'); return; }
+      this.state = data.state;
+      this.state.rooms = this.state.rooms || {};
+      this.menu = null; this.dialog = null; this.speech = []; this.cutscenes = 0;
+      this.clearSentence();
+      await this.gotoRoom(this.state.room, data.player && data.player.x, data.player && data.player.y, { instant: true, noEnter: true });
+      if (data.player) this.player().dir = data.player.dir;
+      this.showToast('Game loaded.');
+    }
+
+    showToast(text) { this.toast = { text, until: this.time + 2.2 }; }
+  };
+})();
+
+/* ==== engine/render.js ==== */
+/* Grog Engine — render: paint ops, sprites, actors, text layer, compositing. */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+  const E = Grog.Engine.prototype;
+
+  Grog.FONT = 'bold 13px "Lucida Console", Monaco, monospace';
+  Grog.FONT_SMALL = 'bold 11px "Lucida Console", Monaco, monospace';
+
+  // ---------- sprite rasterization (cached offscreen canvases) ----------
+  Grog._spriteCache = {};
+  Grog.rasterFrame = function (project, spriteId, frameName) {
+    const key = spriteId + ' ' + frameName;
+    const cache = Grog._spriteCache;
+    if (cache[key]) return cache[key];
+    const spr = (project.sprites || {})[spriteId];
+    if (!spr || !spr.frames[frameName]) return null;
+    const rows = spr.frames[frameName];
+    const h = rows.length, w = spr.w || (rows[0] ? rows[0].length : 0);
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, w); cv.height = Math.max(1, h);
+    const ctx = cv.getContext('2d');
+    for (let y = 0; y < h; y++) {
+      const row = rows[y] || '';
+      for (let x = 0; x < row.length; x++) {
+        const ch = row[x];
+        if (ch === '.' || ch === ' ') continue;
+        ctx.fillStyle = Grog.color(Grog.colorIndex(ch));
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+    cache[key] = cv;
+    return cv;
+  };
+  Grog.clearSpriteCache = function () { Grog._spriteCache = {}; };
+
+  // ---------- paint ops ----------
+  // Draw a list of paint ops onto ctx. Skips ops with a z baseline unless includeZ.
+  Grog.paint = function (ctx, ops, project, opts = {}) {
+    for (const op of ops || []) {
+      if (op.z !== undefined && !opts.includeZ) continue;
+      if (opts.onlyZ && op.z === undefined) continue;
+      Grog.paintOp(ctx, op, project);
+    }
+  };
+  Grog.paintOp = function (ctx, op, project) {
+    const C = (i) => Grog.color(typeof i === 'string' ? Grog.colorIndex(i) : i);
+    switch (op.op) {
+      case 'fill':
+        ctx.fillStyle = C(op.c); ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); break;
+      case 'rect':
+        ctx.fillStyle = C(op.c); ctx.fillRect(op.x, op.y, op.w, op.h); break;
+      case 'poly': {
+        ctx.fillStyle = C(op.c); ctx.beginPath();
+        const p = op.pts; ctx.moveTo(p[0], p[1]);
+        for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+        ctx.closePath(); ctx.fill(); break;
+      }
+      case 'ellipse':
+        ctx.fillStyle = C(op.c); ctx.beginPath();
+        ctx.ellipse(op.x, op.y, op.rx, op.ry, 0, 0, Math.PI * 2); ctx.fill(); break;
+      case 'line': {
+        ctx.strokeStyle = C(op.c); ctx.lineWidth = op.w || 1; ctx.beginPath();
+        ctx.moveTo(op.x1 + 0.5, op.y1 + 0.5); ctx.lineTo(op.x2 + 0.5, op.y2 + 0.5); ctx.stroke(); break;
+      }
+      case 'grad': {
+        // vertical dithered gradient between two palette colors (checker dithering)
+        const rows = op.h, from = C(op.from), to = C(op.to);
+        for (let y = 0; y < rows; y++) {
+          const t = rows <= 1 ? 0 : y / (rows - 1);
+          if (op.dither === false) {
+            ctx.fillStyle = t < 0.5 ? from : to;
+            ctx.fillRect(op.x, op.y + y, op.w, 1);
+          } else {
+            // 4-band dither
+            const band = Math.floor(t * 4);
+            for (let x = 0; x < op.w; x++) {
+              let useTo;
+              if (band === 0) useTo = false;
+              else if (band === 3) useTo = true;
+              else if (band === 1) useTo = (x + y) % 4 === 0;
+              else useTo = (x + y) % 2 === 0;
+              ctx.fillStyle = useTo ? to : from;
+              ctx.fillRect(op.x + x, op.y + y, 1, 1);
+            }
+          }
+        }
+        break;
+      }
+      case 'scatter': {
+        const rnd = Grog.rng(op.seed || 1);
+        ctx.fillStyle = C(op.c);
+        const s = op.size || 1;
+        for (let i = 0; i < (op.n || 20); i++) {
+          ctx.fillRect(op.x + Math.floor(rnd() * op.w), op.y + Math.floor(rnd() * op.h), s, s);
+        }
+        break;
+      }
+      case 'sprite': {
+        const img = Grog.rasterFrame(project, op.id, op.frame || Object.keys(((project.sprites || {})[op.id] || { frames: {} }).frames)[0]);
+        if (!img) break;
+        const sc = op.scale || 1;
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        if (op.flip) {
+          ctx.translate(op.x + img.width * sc, op.y);
+          ctx.scale(-sc, sc);
+          ctx.drawImage(img, 0, 0);
+        } else {
+          ctx.translate(op.x, op.y);
+          ctx.scale(sc, sc);
+          ctx.drawImage(img, 0, 0);
+        }
+        ctx.restore();
+        break;
+      }
+    }
+  };
+
+  // ---------- room prerender ----------
+  E.prerenderRoom = function (room) {
+    room = room || this.room;
+    if (!room) return;
+    const w = room.w || Grog.W;
+    this.rv.width = w; this.rv.height = Grog.VIEW_H;
+    const ctx = this.rctx;
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, Grog.VIEW_H);
+    Grog.paint(ctx, room.paint, this.project);
+    // hotspot state paints (non-z)
+    for (const h of room.hotspots || []) {
+      if (!this.hotspotVisible(h)) continue;
+      const ops = this._hotspotPaint(h);
+      if (ops) Grog.paint(ctx, ops, this.project);
+    }
+    this._roomDirty = false;
+  };
+  E._hotspotPaint = function (h) {
+    if (h.states) {
+      const st = this.hotspotCurState(h);
+      const def = h.states[st];
+      return def ? def.paint : null;
+    }
+    return h.paint || null;
+  };
+  E.markRoomDirty = function () { this._roomDirty = true; };
+
+  // ---------- animation ----------
+  E.resolveAnim = function (actor, name) {
+    const anims = actor.def.anims || {};
+    let a = anims[name];
+    let flip = false;
+    if (a && a.ref) { flip = !!a.flip; a = anims[a.ref]; }
+    if (!a) return null;
+    return { frames: a.frames, fps: a.fps || 8, flip: flip || !!a.flip && !a.ref && false };
+  };
+  E.pickAnimName = function (a) {
+    const anims = a.def.anims || {};
+    const dir = a.dir;
+    if (a.talking) {
+      if (anims['talk' + dir]) return 'talk' + dir;
+      if (anims.talk) return 'talk';
+    }
+    if (a.path) {
+      if (anims['walk' + dir]) return 'walk' + dir;
+      if (anims.walkR) return dir === 'L' ? 'walkL' : 'walkR';
+    }
+    if (anims['idle' + dir]) return 'idle' + dir;
+    return 'idle';
+  };
+  E.updateAnims = function (dt) {
+    for (const id in this.actors) {
+      const a = this.actors[id];
+      if (a.roomId !== this.state.room || a.hidden) continue;
+      const want = a.animLock || this.pickAnimName(a);
+      if (want !== a.anim) { a.anim = want; a.frame = 0; a.ftime = 0; }
+      const def = this.resolveAnim(a, a.anim);
+      if (!def) continue;
+      a.ftime += dt;
+      const spf = 1 / (def.fps || 8);
+      while (a.ftime >= spf) {
+        a.ftime -= spf;
+        a.frame++;
+        if (a.frame >= def.frames.length) {
+          if (a.animOnce) { a.frame = def.frames.length - 1; a.animLock = null; a.animOnce = false; if (a.animResolve) { a.animResolve(); a.animResolve = null; } }
+          else a.frame = 0;
+        }
+      }
+    }
+  };
+
+  E.drawActor = function (ctx, a) {
+    const name = a.anim;
+    const def = this.resolveAnim(a, name) || this.resolveAnim(a, 'idle');
+    if (!def) return;
+    const frameName = def.frames[Math.min(a.frame, def.frames.length - 1)];
+    const img = Grog.rasterFrame(this.project, a.def.sprite, frameName);
+    if (!img) return;
+    const sc = a.scale || 1;
+    const w = img.width * sc, h = img.height * sc;
+    const x = Math.round(a.x - w / 2), y = Math.round(a.y - h);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    // flip if anim mirrors, or actor faces L and uses R art
+    const anims = a.def.anims || {};
+    let flip = false;
+    const raw = anims[name];
+    if (raw && raw.ref) flip = !!raw.flip;
+    else if (raw && raw.flip) flip = true;
+    if (flip) {
+      ctx.translate(x + w, y); ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0, img.width, img.height, 0, 0, w, h);
+    } else {
+      ctx.drawImage(img, 0, 0, img.width, img.height, x, y, w, h);
+    }
+    ctx.restore();
+  };
+
+  // ---------- text helpers (2x layer) ----------
+  E.text = function (str, x, y, opts = {}) {
+    const t = this.tctx, S = Grog.TEXT_SCALE;
+    t.font = opts.small ? Grog.FONT_SMALL : Grog.FONT;
+    t.textBaseline = 'top';
+    t.textAlign = opts.align || 'left';
+    const px = x * S, py = y * S;
+    if (opts.outline !== false) {
+      t.fillStyle = '#000';
+      for (const [ox, oy] of [[-2, 0], [2, 0], [0, -2], [0, 2], [-1, -1], [1, 1], [-1, 1], [1, -1]]) {
+        t.fillText(str, px + ox, py + oy);
+      }
+    }
+    t.fillStyle = opts.color || '#fff';
+    t.fillText(str, px, py);
+  };
+  E.textWidth = function (str, small) {
+    const t = this.tctx;
+    t.font = small ? Grog.FONT_SMALL : Grog.FONT;
+    return t.measureText(str).width / Grog.TEXT_SCALE;
+  };
+  E.wrapText = function (str, maxW, small) {
+    const words = String(str).split(' ');
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      const test = cur ? cur + ' ' + w : w;
+      if (this.textWidth(test, small) > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  };
+
+  // ---------- speech ----------
+  E.updateSpeech = function () {
+    this.speech = this.speech.filter((s) => {
+      if (this.time >= s.until) {
+        const a = this.actors[s.actorId];
+        if (a) a.talking = this.speech.some((o) => o !== s && o.actorId === s.actorId);
+        if (a && !a.talking) a.talking = false;
+        if (s.resolve) s.resolve();
+        return false;
+      }
+      return true;
+    });
+  };
+  E.skipSpeech = function () {
+    for (const s of this.speech) s.until = this.time;
+  };
+
+  // ---------- master render ----------
+  E.render = function () {
+    const ctx = this.ctx, t = this.tctx;
+    const camX = Math.round(this.camera.x);
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, Grog.W, Grog.H);
+    t.clearRect(0, 0, this.tv.width, this.tv.height);
+
+    if (this._roomDirty) this.prerenderRoom();
+
+    if (this.room) {
+      // 1. room base
+      ctx.drawImage(this.rv, -camX, 0);
+      // 2. depth pass: actors + z ops, painter's algorithm by baseline
+      const items = [];
+      for (const id in this.actors) {
+        const a = this.actors[id];
+        if (a.roomId === this.state.room && !a.hidden) items.push({ key: a.y, actor: a });
+      }
+      const zops = [];
+      for (const op of this.room.paint || []) if (op.z !== undefined) zops.push(op);
+      for (const h of this.room.hotspots || []) {
+        if (!this.hotspotVisible(h)) continue;
+        for (const op of this._hotspotPaint(h) || []) if (op.z !== undefined) zops.push(op);
+      }
+      for (const op of zops) items.push({ key: op.z, op });
+      items.sort((a, b) => a.key - b.key);
+      ctx.save();
+      ctx.translate(-camX, 0);
+      ctx.beginPath(); ctx.rect(camX, 0, Grog.W, Grog.VIEW_H); ctx.clip();
+      for (const it of items) {
+        if (it.actor) this.drawActor(ctx, it.actor);
+        else Grog.paintOp(ctx, it.op, this.project);
+      }
+      ctx.restore();
+      // debug walk grid
+      if (this.opts.debugWalk && this.walkGrid) this.drawWalkDebug(ctx, camX);
+    }
+
+    // 3. UI on low-res layer (panels) — ui.js
+    this.drawUIPanels(ctx);
+
+    // 4. fade
+    if (this.fade.v > 0) {
+      ctx.fillStyle = 'rgba(0,0,0,' + this.fade.v.toFixed(3) + ')';
+      ctx.fillRect(0, 0, Grog.W, Grog.H);
+    }
+
+    // 5. text layer: speech, UI labels, dialog, menu, toast, cursor
+    for (const s of this.speech) {
+      const a = this.actors[s.actorId];
+      let sx, sy;
+      if (a && a.roomId === this.state.room && !a.hidden && !s.offscreen) {
+        const img = this._actorImg(a);
+        sx = a.x - camX;
+        sy = a.y - (img ? img.height * (a.scale || 1) : 40) - 4;
+      } else { sx = Grog.W / 2; sy = 22; }
+      const lines = this.wrapText(s.text, 260);
+      sy -= lines.length * 9;
+      sy = Grog.clamp(sy, 4, Grog.VIEW_H - 12 - lines.length * 9);
+      for (let i = 0; i < lines.length; i++) {
+        const lx = Grog.clamp(sx, this.textWidth(lines[i]) / 2 + 4, Grog.W - this.textWidth(lines[i]) / 2 - 4);
+        this.text(lines[i], lx, sy + i * 9, { align: 'center', color: s.color });
+      }
+    }
+
+    if (this.titleCard && this.time < this.titleCard.until) {
+      const tc = this.titleCard;
+      this.text(tc.text, Grog.W / 2, Grog.VIEW_H / 2 - 12, { align: 'center', color: '#fff' });
+      if (tc.sub) this.text(tc.sub, Grog.W / 2, Grog.VIEW_H / 2 + 2, { align: 'center', color: '#9badb7', small: true });
+    }
+
+    this.drawUIText();       // sentence line, verbs, inventory labels, dialogs — ui.js
+    if (this.menu) this.drawMenu();
+    if (this.toast && this.time < this.toast.until) {
+      this.text(this.toast.text, Grog.W / 2, Grog.VIEW_H - 14, { align: 'center', color: '#fbf236' });
+    }
+    this.drawCursor();
+
+    // 6. composite to display canvas
+    const d = this.dctx, S = Grog.TEXT_SCALE;
+    d.imageSmoothingEnabled = false;
+    d.clearRect(0, 0, this.dv.width, this.dv.height);
+    d.drawImage(this.cv, 0, 0, Grog.W, Grog.H, 0, 0, Grog.W * S, Grog.H * S);
+    d.drawImage(this.tv, 0, 0);
+  };
+
+  E._actorImg = function (a) {
+    const def = this.resolveAnim(a, a.anim) || this.resolveAnim(a, 'idle');
+    if (!def) return null;
+    return Grog.rasterFrame(this.project, a.def.sprite, def.frames[Math.min(a.frame, def.frames.length - 1)]);
+  };
+
+  E.drawWalkDebug = function (ctx, camX) {
+    const g = this.walkGrid;
+    ctx.save(); ctx.globalAlpha = 0.3; ctx.fillStyle = '#0f0';
+    for (let gy = 0; gy < g.rows; gy++)
+      for (let gx = 0; gx < g.cols; gx++)
+        if (g.cells[gy * g.cols + gx]) ctx.fillRect(gx * g.cell - camX, gy * g.cell, g.cell - 1, g.cell - 1);
+    ctx.restore();
+  };
+})();
+
+/* ==== engine/walk.js ==== */
+/* Grog Engine — walk: walkable-polygon grid, A* pathfinding, movement, y-scaling. */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+  const E = Grog.Engine.prototype;
+  const CELL = 4;
+
+  E.buildWalkGrid = function (room) {
+    const w = room.w || Grog.W;
+    const cols = Math.ceil(w / CELL), rows = Math.ceil(Grog.VIEW_H / CELL);
+    const cells = new Uint8Array(cols * rows);
+    const polys = room.walk || [];
+    for (let gy = 0; gy < rows; gy++) {
+      for (let gx = 0; gx < cols; gx++) {
+        const x = gx * CELL + CELL / 2, y = gy * CELL + CELL / 2;
+        for (const poly of polys) {
+          if (Grog.pointInPoly(x, y, poly)) { cells[gy * cols + gx] = 1; break; }
+        }
+      }
+    }
+    this.walkGrid = { cols, rows, cells, cell: CELL };
+  };
+
+  E.walkable = function (x, y) {
+    const g = this.walkGrid;
+    if (!g) return false;
+    const gx = Math.floor(x / g.cell), gy = Math.floor(y / g.cell);
+    if (gx < 0 || gy < 0 || gx >= g.cols || gy >= g.rows) return false;
+    return !!g.cells[gy * g.cols + gx];
+  };
+
+  // nearest walkable cell center to (x,y) — spiral search
+  E.nearestWalkable = function (x, y) {
+    const g = this.walkGrid;
+    if (!g) return { x, y };
+    let gx = Grog.clamp(Math.floor(x / g.cell), 0, g.cols - 1);
+    let gy = Grog.clamp(Math.floor(y / g.cell), 0, g.rows - 1);
+    if (g.cells[gy * g.cols + gx]) return { x, y };
+    let best = null, bestD = Infinity;
+    for (let r = 1; r < Math.max(g.cols, g.rows); r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const nx = gx + dx, ny = gy + dy;
+          if (nx < 0 || ny < 0 || nx >= g.cols || ny >= g.rows) continue;
+          if (!g.cells[ny * g.cols + nx]) continue;
+          const cx = nx * g.cell + g.cell / 2, cy = ny * g.cell + g.cell / 2;
+          const d = Grog.dist(x, y, cx, cy);
+          if (d < bestD) { bestD = d; best = { x: cx, y: cy }; }
+        }
+      }
+      if (best) return best;
+    }
+    return { x, y };
+  };
+
+  E.findPath = function (x1, y1, x2, y2) {
+    const g = this.walkGrid;
+    if (!g) return null;
+    const start = this.nearestWalkable(x1, y1);
+    const goal = this.nearestWalkable(x2, y2);
+    const sx = Math.floor(start.x / g.cell), sy = Math.floor(start.y / g.cell);
+    const tx = Math.floor(goal.x / g.cell), ty = Math.floor(goal.y / g.cell);
+    if (sx === tx && sy === ty) return [{ x: goal.x, y: goal.y }];
+    const idx = (x, y) => y * g.cols + x;
+    const open = [{ x: sx, y: sy, f: 0 }];
+    const came = new Int32Array(g.cols * g.rows).fill(-1);
+    const gScore = new Float32Array(g.cols * g.rows).fill(Infinity);
+    gScore[idx(sx, sy)] = 0;
+    const closed = new Uint8Array(g.cols * g.rows);
+    const h = (x, y) => Math.hypot(x - tx, y - ty);
+    let found = false;
+    while (open.length) {
+      // min-f pop (grids are small: 80x36 cells max ~2880)
+      let mi = 0;
+      for (let i = 1; i < open.length; i++) if (open[i].f < open[mi].f) mi = i;
+      const cur = open.splice(mi, 1)[0];
+      if (cur.x === tx && cur.y === ty) { found = true; break; }
+      const ci = idx(cur.x, cur.y);
+      if (closed[ci]) continue;
+      closed[ci] = 1;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = cur.x + dx, ny = cur.y + dy;
+          if (nx < 0 || ny < 0 || nx >= g.cols || ny >= g.rows) continue;
+          if (!g.cells[idx(nx, ny)]) continue;
+          if (dx && dy && (!g.cells[idx(cur.x + dx, cur.y)] || !g.cells[idx(cur.x, cur.y + dy)])) continue; // no corner cutting
+          const cost = gScore[ci] + (dx && dy ? 1.414 : 1);
+          const ni = idx(nx, ny);
+          if (cost < gScore[ni]) {
+            gScore[ni] = cost;
+            came[ni] = ci;
+            open.push({ x: nx, y: ny, f: cost + h(nx, ny) });
+          }
+        }
+      }
+    }
+    if (!found) return null;
+    // reconstruct
+    let cells = [];
+    let ci = idx(tx, ty);
+    while (ci !== -1) {
+      cells.push({ x: (ci % g.cols) * g.cell + g.cell / 2, y: Math.floor(ci / g.cols) * g.cell + g.cell / 2 });
+      ci = came[ci];
+    }
+    cells.reverse();
+    // line-of-sight smoothing
+    const clear = (a, b) => {
+      const steps = Math.ceil(Grog.dist(a.x, a.y, b.x, b.y) / (g.cell / 2));
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        if (!this.walkable(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)) return false;
+      }
+      return true;
+    };
+    const path = [cells[0]];
+    let anchor = 0;
+    for (let i = 2; i < cells.length; i++) {
+      if (!clear(cells[anchor], cells[i])) { path.push(cells[i - 1]); anchor = i - 1; }
+    }
+    path.push({ x: goal.x, y: goal.y });
+    return path;
+  };
+
+  // Walk an actor somewhere. Returns a promise resolving on arrival (or interruption).
+  E.walkTo = function (actorId, x, y, dir) {
+    const a = this.actors[actorId];
+    if (!a) return Promise.resolve();
+    if (a.walkResolve) { a.walkResolve(); a.walkResolve = null; }
+    const path = this.findPath(a.x, a.y, x, y);
+    if (!path || !path.length) { if (dir) a.dir = dir; return Promise.resolve(); }
+    a.path = path;
+    a.pathI = 0;
+    a.arriveDir = dir || null;
+    return new Promise((res) => { a.walkResolve = res; });
+  };
+
+  E.stopWalk = function (actorId) {
+    const a = this.actors[actorId];
+    if (!a) return;
+    a.path = null;
+    if (a.walkResolve) { a.walkResolve(); a.walkResolve = null; }
+  };
+
+  E.updateWalks = function (dt) {
+    for (const id in this.actors) {
+      const a = this.actors[id];
+      a.scale = a.roomId === this.state.room ? this.scaleAt(a.y) : a.scale;
+      if (!a.path) continue;
+      let remaining = a.speed * (a.scale || 1) * dt;
+      while (remaining > 0 && a.path) {
+        const target = a.path[a.pathI];
+        const d = Grog.dist(a.x, a.y, target.x, target.y);
+        if (d <= remaining) {
+          a.x = target.x; a.y = target.y;
+          remaining -= d;
+          a.pathI++;
+          if (a.pathI >= a.path.length) {
+            a.path = null;
+            if (a.arriveDir) a.dir = a.arriveDir;
+            if (a.walkResolve) { const r = a.walkResolve; a.walkResolve = null; r(); }
+          }
+        } else {
+          const nx = (target.x - a.x) / d, ny = (target.y - a.y) / d;
+          a.x += nx * remaining; a.y += ny * remaining;
+          // facing from dominant axis
+          if (Math.abs(nx) > Math.abs(ny) * 0.8) a.dir = nx < 0 ? 'L' : 'R';
+          else a.dir = ny < 0 ? 'U' : 'D';
+          remaining = 0;
+        }
+      }
+    }
+  };
+
+  // Actor scale from the room's scale band: linear in y between (y1,s1) and (y2,s2).
+  E.scaleAt = function (y) {
+    const sc = this.room && this.room.scale;
+    if (!sc) return 1;
+    const t = Grog.clamp((y - sc.y1) / Math.max(1, sc.y2 - sc.y1), 0, 1);
+    return sc.s1 + (sc.s2 - sc.s1) * t;
+  };
+})();
+
+/* ==== engine/audio.js ==== */
+/* Grog Engine — audio: WebAudio chiptune synth. Pattern music + procedural SFX.
+   No audio files required. Music format:
+   { "bpm": 112, "steps": 2, "tracks": [ { "wave":"square", "vol":0.2,
+     "notes": "C4 E4 G4 - . C5 | ..." } ] }   ('.' rest, '-' hold, '|' cosmetic) */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+
+  const NOTE_RE = /^([A-Ga-g])(#|b)?(-?\d)$/;
+  const SEMI = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  function noteFreq(tok) {
+    const m = NOTE_RE.exec(tok);
+    if (!m) return null;
+    let s = SEMI[m[1].toUpperCase()];
+    if (m[2] === '#') s++; if (m[2] === 'b') s--;
+    const oct = parseInt(m[3], 10);
+    const midi = (oct + 1) * 12 + s;
+    return 440 * Math.pow(2, (midi - 69) / 12);
+  }
+
+  Grog.Audio = class {
+    constructor() {
+      this.ctx = null;
+      this.musicOn = true;
+      this.soundOn = true;
+      this.music = null;      // {def, id, step, nextTime, timer}
+      this._noiseBuf = null;
+    }
+    ensure() {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        this.ctx = new AC();
+        this.master = this.ctx.createGain();
+        this.master.gain.value = 0.5;
+        this.master.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return true;
+    }
+    unlock() { this.ensure(); if (this.music && !this.music.timer) this._startSequencer(); }
+
+    noiseBuffer() {
+      if (!this._noiseBuf) {
+        const len = this.ctx.sampleRate * 0.5;
+        this._noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = this._noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
+      return this._noiseBuf;
+    }
+
+    // ---------- music ----------
+    playMusic(def, id) {
+      if (this.music && this.music.id === id) return;
+      this.stopMusic();
+      if (!def) return;
+      // parse tracks
+      const tracks = (def.tracks || []).map((tr) => ({
+        wave: tr.wave || 'square',
+        vol: tr.vol !== undefined ? tr.vol : 0.15,
+        toks: String(tr.notes || '').split(/\s+/).filter((t) => t && t !== '|'),
+      }));
+      const len = Math.max(1, ...tracks.map((t) => t.toks.length));
+      this.music = { def, id, tracks, len, step: 0, nextTime: 0, timer: null };
+      if (this.ctx && this.ctx.state === 'running') this._startSequencer();
+    }
+    _startSequencer() {
+      if (!this.ensure() || !this.music) return;
+      const m = this.music;
+      m.nextTime = this.ctx.currentTime + 0.1;
+      const stepDur = () => 60 / (m.def.bpm || 110) / (m.def.steps || 2);
+      const tick = () => {
+        if (!this.music || this.music !== m) return;
+        while (m.nextTime < this.ctx.currentTime + 0.35) {
+          if (this.musicOn) this._scheduleStep(m, m.step % m.len, m.nextTime, stepDur());
+          m.step++;
+          m.nextTime += stepDur();
+        }
+      };
+      tick();
+      m.timer = setInterval(tick, 120);
+    }
+    _scheduleStep(m, step, when, dur) {
+      for (const tr of m.tracks) {
+        const tok = tr.toks[step % tr.toks.length];
+        if (!tok || tok === '.' || tok === '-') continue;
+        // hold detection: extend duration while following tokens are '-'
+        let hold = 1;
+        for (let i = step + 1; i < step + 16; i++) {
+          if (tr.toks[i % tr.toks.length] === '-' && i < tr.toks.length) hold++;
+          else break;
+        }
+        if (tr.wave === 'noise' || tok === 'x' || tok === 'X') {
+          this._noiseHit(when, tok === 'X' ? 0.6 : 0.3, tr.vol, dur);
+          continue;
+        }
+        const f = noteFreq(tok);
+        if (!f) continue;
+        this._tone(f, when, dur * hold * 0.92, tr.wave, tr.vol);
+      }
+    }
+    _tone(freq, when, dur, wave, vol) {
+      const o = this.ctx.createOscillator();
+      o.type = wave === 'square' ? 'square' : wave;
+      o.frequency.value = freq;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, when);
+      g.gain.linearRampToValueAtTime(vol, when + 0.012);
+      g.gain.setValueAtTime(vol, when + Math.max(0.012, dur - 0.04));
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      o.connect(g); g.connect(this.master);
+      o.start(when); o.stop(when + dur + 0.05);
+    }
+    _noiseHit(when, decay, vol, dur) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer();
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(vol, when);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + decay * dur * 4);
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'highpass'; f.frequency.value = 800;
+      src.connect(f); f.connect(g); g.connect(this.master);
+      src.start(when); src.stop(when + decay);
+    }
+    stopMusic() {
+      if (this.music && this.music.timer) clearInterval(this.music.timer);
+      this.music = null;
+    }
+
+    // ---------- sfx ----------
+    sfx(id, custom) {
+      if (!this.soundOn || !this.ensure()) return;
+      const t = this.ctx.currentTime;
+      const def = custom;
+      if (def && def.type === 'sweep') { this._sweep(t, def.from, def.to, def.dur || 0.2, def.wave || 'square', def.vol || 0.25); return; }
+      switch (id) {
+        case 'pickup': this._sweep(t, 500, 950, 0.1, 'square', 0.2); this._sweep(t + 0.09, 950, 1400, 0.08, 'square', 0.16); break;
+        case 'open': this._sweep(t, 180, 90, 0.16, 'sawtooth', 0.22); break;
+        case 'close': this._sweep(t, 120, 60, 0.12, 'sawtooth', 0.25); this._noiseAt(t + 0.1, 0.06, 0.2); break;
+        case 'error': this._sweep(t, 220, 110, 0.22, 'square', 0.22); break;
+        case 'ding': this._sweep(t, 1200, 1200, 0.3, 'triangle', 0.2); break;
+        case 'splash': this._noiseAt(t, 0.35, 0.3, 400); break;
+        case 'thunk': this._sweep(t, 90, 45, 0.1, 'triangle', 0.4); this._noiseAt(t, 0.07, 0.2); break;
+        case 'teleport': for (let i = 0; i < 6; i++) this._sweep(t + i * 0.05, 300 + i * 200, 500 + i * 250, 0.05, 'square', 0.12); break;
+        case 'step': this._noiseAt(t, 0.03, 0.08, 300); break;
+        case 'laugh': for (let i = 0; i < 4; i++) this._sweep(t + i * 0.09, 400 - i * 40, 300 - i * 40, 0.07, 'square', 0.15); break;
+        case 'fanfare': { const seq = [523, 659, 784, 1047]; seq.forEach((f, i) => this._sweep(t + i * 0.12, f, f, i === 3 ? 0.5 : 0.11, 'square', 0.2)); break; }
+        default: this._sweep(t, 440, 440, 0.1, 'square', 0.2);
+      }
+    }
+    _sweep(when, f1, f2, dur, wave, vol) {
+      const o = this.ctx.createOscillator();
+      o.type = wave;
+      o.frequency.setValueAtTime(f1, when);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), when + dur);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(vol, when);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      o.connect(g); g.connect(this.master);
+      o.start(when); o.stop(when + dur + 0.05);
+    }
+    _noiseAt(when, dur, vol, hp) {
+      if (!this.ensure()) return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuffer();
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(vol, when);
+      g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'highpass'; f.frequency.value = hp || 700;
+      src.connect(f); f.connect(g); g.connect(this.master);
+      src.start(when); src.stop(when + dur + 0.02);
+    }
+  };
+})();
+
+/* ==== engine/script.js ==== */
+/* Grog Engine — script: action interpreter, condition expressions, verbs, dialogs. */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+  const E = Grog.Engine.prototype;
+  const STOP = Symbol('stop');
+
+  // ---------- condition expressions ----------
+  // Grammar: or := and ('||' and)*   and := not ('&&' not)*   not := '!' not | prim
+  // prim := '(' or ')' | has(item) | v.name cmp value | flagName
+  Grog.evalCond = function (engine, src) {
+    if (src === undefined || src === null || src === '' || src === true) return true;
+    if (src === false) return false;
+    const toks = String(src).match(/\(|\)|&&|\|\||!|==|!=|>=|<=|>|<|[A-Za-z_][\w.]*(\(\s*[\w]*\s*\))?|-?\d+(\.\d+)?|"[^"]*"|'[^']*'/g) || [];
+    let i = 0;
+    const peek = () => toks[i];
+    const next = () => toks[i++];
+    function prim() {
+      const t = next();
+      if (t === '(') { const v = or(); next(); return v; }
+      if (t === '!') return !prim();
+      let val;
+      if (/^-?\d/.test(t)) val = parseFloat(t);
+      else if (/^["']/.test(t)) val = t.slice(1, -1);
+      else if (/^has\(/i.test(t)) val = engine.state.inventory.includes(t.replace(/^has\(\s*/i, '').replace(/\s*\)$/, ''));
+      else if (t && t.startsWith('v.')) val = engine.state.vars[t.slice(2)];
+      else val = !!engine.state.flags[t];
+      const op = peek();
+      if (['==', '!=', '>=', '<=', '>', '<'].includes(op)) {
+        next();
+        let rhs = next();
+        if (/^-?\d/.test(rhs)) rhs = parseFloat(rhs);
+        else if (/^["']/.test(rhs)) rhs = rhs.slice(1, -1);
+        else if (rhs && rhs.startsWith('v.')) rhs = engine.state.vars[rhs.slice(2)];
+        else rhs = !!engine.state.flags[rhs];
+        switch (op) {
+          case '==': return val == rhs; case '!=': return val != rhs;
+          case '>=': return val >= rhs; case '<=': return val <= rhs;
+          case '>': return val > rhs; case '<': return val < rhs;
+        }
+      }
+      return !!val;
+    }
+    function and() { let v = prim(); while (peek() === '&&') { next(); const r = prim(); v = v && r; } return v; }
+    function or() { let v = and(); while (peek() === '||') { next(); const r = and(); v = v || r; } return v; }
+    try { return or(); } catch (e) { console.warn('Bad condition:', src, e); return false; }
+  };
+
+  // ---------- say ----------
+  E.say = function (actorId, text, opts = {}) {
+    text = String(text);
+    const a = this.actors[actorId];
+    const color = opts.color || (a && a.def.color ? Grog.color(Grog.colorIndex(a.def.color)) : '#fff');
+    // one active line per actor: cut the previous
+    for (const s of this.speech) if (s.actorId === actorId) s.until = this.time;
+    const cps = (this.project.meta && this.project.meta.textSpeed) || 15; // chars/sec
+    const dur = Grog.clamp(0.9 + text.length / cps, 1.4, 12);
+    if (a) a.talking = true;
+    return new Promise((resolve) => {
+      this.speech.push({ actorId, text, color, until: this.time + dur, resolve: () => { if (a) a.talking = false; resolve(); }, offscreen: opts.offscreen });
+    });
+  };
+
+  // ---------- interpreter ----------
+  E.runScript = async function (actions, ctx = {}) {
+    if (!actions || !actions.length) return;
+    if (!ctx.free) this.cutscenes++;
+    try {
+      await this._run(actions, ctx);
+    } catch (e) {
+      if (e !== STOP) console.error('Script error:', e);
+    } finally {
+      if (!ctx.free) this.cutscenes = Math.max(0, this.cutscenes - 1);
+    }
+  };
+
+  E._run = async function (actions, ctx) {
+    for (const op of actions) {
+      if (this._ended) throw STOP;
+      await this._exec(op, ctx);
+    }
+  };
+
+  E._resolveActor = function (op, ctx) {
+    const id = op.actor || ctx.actor || this.playerId;
+    return id === 'player' ? this.playerId : id;
+  };
+
+  E._exec = async function (op, ctx) {
+    const P = this.project;
+    switch (op.do) {
+      case 'say': {
+        if (op.actor === 'narrator') { await this.say('$narrator', op.text, { color: op.color || '#cbdbfc', offscreen: true }); break; }
+        const id = this._resolveActor(op, ctx);
+        await this.say(id, op.text, { color: op.color && Grog.color(Grog.colorIndex(op.color)) });
+        break;
+      }
+      case 'walk': {
+        const id = this._resolveActor(op, ctx);
+        let x = op.x, y = op.y, dir = op.dir;
+        if (op.to) {
+          const h = this.findHotspot(op.to);
+          if (h) { const at = h.at || this._hotspotCenter(h); x = at[0]; y = at[1]; dir = dir || h.dir; }
+        }
+        if (x === undefined) break;
+        await this.walkTo(id, x, y, dir);
+        break;
+      }
+      case 'face': { const a = this.actors[this._resolveActor(op, ctx)]; if (a) a.dir = op.dir || 'D'; break; }
+      case 'anim': {
+        const a = this.actors[this._resolveActor(op, ctx)];
+        if (!a) break;
+        if (op.name === null || op.name === 'none') { a.animLock = null; break; }
+        a.animLock = op.name; a.frame = 0; a.ftime = 0; a.anim = op.name;
+        if (op.wait) { a.animOnce = true; await new Promise((r) => (a.animResolve = r)); }
+        else if (op.once) a.animOnce = true;
+        break;
+      }
+      case 'wait': await this.sleep(op.ms || 500); break;
+      case 'goto': await this.gotoRoom(op.room, op.x, op.y, { dir: op.dir }); break;
+      case 'set': this.state.flags[op.flag] = op.value === undefined ? true : !!op.value; break;
+      case 'var': {
+        const v = this.state.vars;
+        if (op.set !== undefined) v[op.name] = op.set;
+        else if (op.add !== undefined) v[op.name] = (v[op.name] || 0) + op.add;
+        break;
+      }
+      case 'give': {
+        if (!this.state.inventory.includes(op.item)) this.state.inventory.push(op.item);
+        if (op.silent !== true) this.audio.sfx('pickup');
+        break;
+      }
+      case 'lose': {
+        const ix = this.state.inventory.indexOf(op.item);
+        if (ix >= 0) this.state.inventory.splice(ix, 1);
+        if (this.heldItem === op.item) this.heldItem = null;
+        break;
+      }
+      case 'show': case 'hide': {
+        const room = op.room || this.state.room;
+        this.hotspotState(room, op.hotspot).hidden = op.do === 'hide';
+        if (room === this.state.room) this.markRoomDirty();
+        break;
+      }
+      case 'state': {
+        const room = op.room || this.state.room;
+        this.hotspotState(room, op.hotspot).state = op.state;
+        if (room === this.state.room) this.markRoomDirty();
+        break;
+      }
+      case 'actor': {
+        const a = this.actors[op.id];
+        if (!a) break;
+        if (op.room !== undefined) { this.state.actorRooms[op.id] = op.room; a.roomId = op.room; }
+        if (op.x !== undefined) { a.x = op.x; a.y = op.y; a.path = null; }
+        if (op.dir) a.dir = op.dir;
+        if (op.hidden !== undefined) a.hidden = !!op.hidden;
+        const rs = this.roomState(a.roomId || this.state.room);
+        rs.actors[op.id] = { x: a.x, y: a.y, hidden: a.hidden };
+        break;
+      }
+      case 'sound': this.audio.sfx(op.id, (P.sounds || {})[op.id]); break;
+      case 'music': this.audio.playMusic(op.id ? (P.music || {})[op.id] : null, op.id || null); break;
+      case 'dialog': await this.runDialog(op.id); break;
+      case 'call': await this._run((P.scripts || {})[op.script] || [], ctx); break;
+      case 'if':
+        if (Grog.evalCond(this, op.cond)) await this._run(op.then || [], ctx);
+        else await this._run(op.else || [], ctx);
+        break;
+      case 'random': {
+        const lists = op.of || [];
+        if (lists.length) await this._run(lists[Math.floor(Math.random() * lists.length)], ctx);
+        break;
+      }
+      case 'shake': {
+        const end = this.time + (op.ms || 400) / 1000;
+        const orig = this.camera.x;
+        while (this.time < end) { this.camera.x = orig + (Math.random() * 4 - 2); await this.sleep(30); }
+        this.camera.x = orig;
+        break;
+      }
+      case 'fade': {
+        if (op.out) await this.fadeTo(1, op.speed || 2.5);
+        else await this.fadeTo(0, op.speed || 2.5);
+        break;
+      }
+      case 'title': {
+        this.titleCard = { text: op.text || '', sub: op.sub, until: this.time + (op.ms || 2500) / 1000 };
+        if (op.wait !== false) await this.sleep(op.ms || 2500);
+        break;
+      }
+      case 'end': {
+        this.state.flags.$ended = true;
+        this.titleCard = { text: op.text || 'The End', sub: op.sub || 'Thanks for playing!', until: this.time + 3600 };
+        this.cutscenes++; // lock input forever (until restart/load)
+        break;
+      }
+      case 'stop': throw STOP;
+      default: console.warn('Unknown command', op);
+    }
+  };
+
+  E.sleep = function (ms) {
+    return new Promise((res) => {
+      const end = this.time + ms / 1000;
+      const check = () => { if (this._ended || this.time >= end) res(); else requestAnimationFrame(check); };
+      check();
+    });
+  };
+
+  // ---------- hotspot helpers ----------
+  E.findHotspot = function (id, roomId) {
+    const room = this.project.rooms[roomId || this.state.room];
+    if (!room) return null;
+    return (room.hotspots || []).find((h) => h.id === id) || null;
+  };
+  E._hotspotCenter = function (h) {
+    if (h.at) return h.at;
+    if (h.rect) return [h.rect[0] + h.rect[2] / 2, Math.min(Grog.VIEW_H - 4, h.rect[1] + h.rect[3] + 2)];
+    if (h.poly) {
+      let sx = 0, sy = 0, n = h.poly.length / 2;
+      for (let i = 0; i < h.poly.length; i += 2) { sx += h.poly[i]; sy += h.poly[i + 1]; }
+      return [sx / n, Math.min(Grog.VIEW_H - 4, sy / n)];
+    }
+    return [Grog.W / 2, Grog.VIEW_H - 10];
+  };
+  E.hotspotName = function (h) {
+    if (h.states) {
+      const st = h.states[this.hotspotCurState(h)];
+      if (st && st.name) return st.name;
+    }
+    return h.name || h.id;
+  };
+
+  // ---------- verb execution ----------
+  // target: {type:'hotspot',h} | {type:'actor',id} | {type:'item',id}
+  // withItem: inventory item id used as the first noun ("Use X with/on Y").
+  E.execVerb = async function (verbId, target, withItem) {
+    const P = this.project;
+    let actions = null, ctxName = '';
+    const tryKeys = (verbsObj, keys) => {
+      if (!verbsObj) return null;
+      for (const k of keys) {
+        const v = verbsObj[k];
+        if (!v) continue;
+        // conditional variants: value may be [{cond, actions}] — pick first matching
+        if (Array.isArray(v) && v.length && v[0] && v[0].cond !== undefined && v[0].actions) {
+          for (const variant of v) if (Grog.evalCond(this, variant.cond)) return variant.actions;
+          continue;
+        }
+        return v;
+      }
+      return null;
+    };
+    if (target.type === 'hotspot') {
+      const h = target.h;
+      ctxName = this.hotspotName(h);
+      const keys = withItem ? [verbId + ' ' + withItem, verbId] : [verbId];
+      // state-specific verbs override base verbs
+      if (h.states) {
+        const st = h.states[this.hotspotCurState(h)];
+        if (st) actions = tryKeys(st.verbs, keys);
+      }
+      if (!actions) actions = tryKeys(h.verbs, keys);
+      if (!actions && withItem) actions = tryKeys((P.items[withItem] || {}).verbs, [verbId + ' ' + h.id]);
+      // walk to the hotspot first (unless script opts out with h.noWalk)
+      if (!h.noWalk) {
+        const at = h.at || this._hotspotCenter(h);
+        await this.walkTo(this.playerId, at[0], at[1], h.dir);
+        if (this._sentenceCancelled) return;
+      }
+    } else if (target.type === 'actor') {
+      const adef = (P.actors[target.id] || {});
+      ctxName = adef.name || target.id;
+      const keys = withItem ? [verbId + ' ' + withItem, verbId] : [verbId];
+      actions = tryKeys(adef.verbs, keys);
+      if (!actions && withItem) actions = tryKeys((P.items[withItem] || {}).verbs, [verbId + ' ' + target.id]);
+      const a = this.actors[target.id];
+      if (a && a.roomId === this.state.room && !a.hidden) {
+        const dx = a.x < this.player().x ? 20 : -20;
+        await this.walkTo(this.playerId, a.x + dx, a.y + 2, a.x < this.player().x ? 'L' : 'R');
+        if (this._sentenceCancelled) return;
+        a.dir = this.player().x < a.x ? 'L' : 'R';
+      }
+    } else if (target.type === 'item') {
+      const idef = P.items[target.id] || {};
+      ctxName = idef.name || target.id;
+      const keys = withItem ? [verbId + ' ' + withItem, verbId] : [verbId];
+      actions = tryKeys(idef.verbs, keys);
+      if (!actions && withItem) actions = tryKeys((P.items[withItem] || {}).verbs, [verbId + ' ' + target.id]);
+    }
+    if (actions) await this.runScript(actions, { hotspot: target.h, verb: verbId });
+    else await this.defaultResponse(verbId, ctxName, withItem);
+  };
+
+  E.defaultResponse = async function (verbId, name, withItem) {
+    const P = this.project;
+    const defs = P.defaults || {};
+    let pool = defs[verbId] || Grog.DEFAULT_RESPONSES[verbId] || defs._generic || Grog.DEFAULT_RESPONSES._generic;
+    if (!Array.isArray(pool)) pool = [pool];
+    const line = pool[Math.floor(Math.random() * pool.length)];
+    await this.runScript([{ do: 'say', text: line }]);
+  };
+
+  Grog.DEFAULT_RESPONSES = {
+    look: ["It's remarkably unremarkable.", "I see nothing special about it.", "Yep. That's definitely a thing."],
+    pickup: ["I don't need that.", "I'd rather leave it where it is.", "My pockets have standards."],
+    use: ["I can't use that.", "That doesn't seem to work.", "Nice try, but no."],
+    open: ["It doesn't open.", "It's not the opening kind."],
+    close: ["It's not the closing kind.", "That's already as closed as it gets."],
+    push: ["It won't budge.", "I push. Nothing happens. Story of my life."],
+    pull: ["It won't budge.", "Pulling accomplishes remarkably little."],
+    talk: ["I'd rather not talk to that.", "It doesn't seem chatty."],
+    give: ["I'd rather keep it.", "That doesn't want it."],
+    _generic: ["That doesn't seem to work.", "Hmm. No.", "I have a bad feeling about that."],
+  };
+
+  // ---------- dialogs ----------
+  E.runDialog = async function (dialogId) {
+    const def = (this.project.dialogs || {})[dialogId];
+    if (!def) return;
+    let nodeId = def.start || Object.keys(def.nodes)[0];
+    while (nodeId && !this._ended) {
+      const node = def.nodes[nodeId];
+      if (!node) break;
+      if (node.actions) await this._run(node.actions, {});
+      const opts = (node.options || []).filter((o, ix) => {
+        if (o.once && this.state.dialogOnce[dialogId + '/' + nodeId + '/' + ix]) return false;
+        return Grog.evalCond(this, o.cond);
+      });
+      if (!opts.length) break;
+      const chosen = await this.presentDialog(opts, dialogId, nodeId, node);
+      if (chosen === null) break;
+      const o = chosen.opt;
+      if (o.once) this.state.dialogOnce[dialogId + '/' + nodeId + '/' + chosen.ix] = true;
+      if (!o.silent) await this.say(this.playerId, o.text);
+      if (o.actions) await this._run(o.actions, {});
+      if (o.end) break;
+      nodeId = o.next || nodeId;
+    }
+    this.dialog = null;
+  };
+
+  E.presentDialog = function (opts, dialogId, nodeId, node) {
+    return new Promise((resolve) => {
+      const all = node.options || [];
+      this.dialog = {
+        options: opts.map((o) => ({ opt: o, ix: all.indexOf(o) })),
+        hover: -1,
+        choose: (i) => {
+          const c = this.dialog.options[i];
+          this.dialog = null;
+          resolve(c || null);
+        },
+      };
+    });
+  };
+})();
+
+/* ==== engine/ui.js ==== */
+/* Grog Engine — ui: verbs, sentence line, inventory, dialogs, menu, cursor, input. */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+  const E = Grog.Engine.prototype;
+
+  Grog.DEFAULT_VERBS = [
+    { id: 'give', label: 'Give', key: 'g', prep: 'to' },
+    { id: 'pickup', label: 'Pick up', key: 'p' },
+    { id: 'use', label: 'Use', key: 'u', prep: 'with' },
+    { id: 'open', label: 'Open', key: 'o' },
+    { id: 'look', label: 'Look at', key: 'l' },
+    { id: 'push', label: 'Push', key: 's' },
+    { id: 'close', label: 'Close', key: 'c' },
+    { id: 'talk', label: 'Talk to', key: 't' },
+    { id: 'pull', label: 'Pull', key: 'y' },
+  ];
+
+  E._initVerbs = function () {
+    this.verbs = this.project.verbs && this.project.verbs.length ? this.project.verbs : Grog.DEFAULT_VERBS;
+    this.invScroll = 0;
+  };
+
+  E.verbById = function (id) { return this.verbs.find((v) => v.id === id); };
+
+  E.clearSentence = function () { this.verb = null; this.heldItem = null; };
+
+  // ---------- hover ----------
+  E.updateHover = function () {
+    this.hover = null;
+    this._hits = [];
+    const locked = this.cutscenes > 0;
+    // UI hit regions (recomputed every frame; used by render + click)
+    if (!locked && !this.dialog && !this.menu) this._layoutUI();
+    if (this.menu || this.dialog) return;
+    if (locked) return;
+    if (this.mouse.y < Grog.VIEW_H && this.room) {
+      const rx = this.mouse.x + Math.round(this.camera.x), ry = this.mouse.y;
+      // actors first (but never the player)
+      for (const id in this.actors) {
+        if (id === this.playerId) continue;
+        const a = this.actors[id];
+        if (a.roomId !== this.state.room || a.hidden) continue;
+        const img = this._actorImg(a);
+        if (!img) continue;
+        const w = img.width * (a.scale || 1), h = img.height * (a.scale || 1);
+        if (rx >= a.x - w / 2 && rx <= a.x + w / 2 && ry >= a.y - h && ry <= a.y) {
+          this.hover = { type: 'actor', id, name: a.def.name || id, default: (a.def.default || 'talk') };
+          return;
+        }
+      }
+      let best = null, bestArea = Infinity;
+      for (const h of this.room.hotspots || []) {
+        if (!this.hotspotVisible(h)) continue;
+        let hit = false, area = Infinity;
+        if (h.rect) {
+          hit = rx >= h.rect[0] && rx <= h.rect[0] + h.rect[2] && ry >= h.rect[1] && ry <= h.rect[1] + h.rect[3];
+          area = h.rect[2] * h.rect[3];
+        } else if (h.poly) {
+          hit = Grog.pointInPoly(rx, ry, h.poly);
+          let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+          for (let i = 0; i < h.poly.length; i += 2) {
+            minX = Math.min(minX, h.poly[i]); maxX = Math.max(maxX, h.poly[i]);
+            minY = Math.min(minY, h.poly[i + 1]); maxY = Math.max(maxY, h.poly[i + 1]);
+          }
+          area = (maxX - minX) * (maxY - minY);
+        }
+        // most specific (smallest) hotspot wins on overlap
+        if (hit && area <= bestArea) { best = h; bestArea = area; }
+      }
+      if (best) this.hover = { type: 'hotspot', h: best, name: this.hotspotName(best), default: best.default || 'look' };
+    } else {
+      // UI area: verbs & inventory hover handled via _hits in render/click
+      for (const hit of this._hits) {
+        if (this.mouse.x >= hit.x && this.mouse.x < hit.x + hit.w && this.mouse.y >= hit.y && this.mouse.y < hit.y + hit.h) {
+          if (hit.type === 'item') this.hover = { type: 'item', id: hit.id, name: (this.project.items[hit.id] || {}).name || hit.id, default: 'look' };
+        }
+      }
+    }
+  };
+
+  // ---------- UI layout ----------
+  const V_X = 2, V_Y = 158, V_W = 56, V_H = 14;
+  const I_X = 180, I_Y = 158, I_W = 33, I_H = 20, I_COLS = 4, I_ROWS = 2;
+
+  E._layoutUI = function () {
+    this._hits = [];
+    this.verbs.forEach((v, i) => {
+      const col = i % 3, row = Math.floor(i / 3);
+      this._hits.push({ x: V_X + col * V_W, y: V_Y + row * V_H, w: V_W - 2, h: V_H - 1, type: 'verb', id: v.id });
+    });
+    const inv = this.state.inventory;
+    const perPage = I_COLS * I_ROWS;
+    const maxScroll = Math.max(0, Math.ceil(inv.length / I_COLS) - I_ROWS);
+    this.invScroll = Grog.clamp(this.invScroll, 0, maxScroll);
+    for (let i = 0; i < perPage; i++) {
+      const idx = this.invScroll * I_COLS + i;
+      if (idx >= inv.length) break;
+      const col = i % I_COLS, row = Math.floor(i / I_COLS);
+      this._hits.push({ x: I_X + col * I_W, y: I_Y + row * I_H, w: I_W - 2, h: I_H - 2, type: 'item', id: inv[idx] });
+    }
+    if (maxScroll > 0) {
+      this._hits.push({ x: I_X - 12, y: I_Y, w: 10, h: 18, type: 'scroll', dir: -1 });
+      this._hits.push({ x: I_X - 12, y: I_Y + 20, w: 10, h: 18, type: 'scroll', dir: 1 });
+    }
+    this._hits.push({ x: Grog.W - 16, y: Grog.H - 57, w: 14, h: 12, type: 'menu' });
+  };
+
+  // ---------- drawing ----------
+  E.drawUIPanels = function (ctx) {
+    if (this.dialog) {
+      ctx.fillStyle = '#1a1626';
+      ctx.fillRect(0, Grog.VIEW_H, Grog.W, Grog.H - Grog.VIEW_H);
+      return;
+    }
+    ctx.fillStyle = '#1a1626';
+    ctx.fillRect(0, Grog.VIEW_H, Grog.W, Grog.H - Grog.VIEW_H);
+    ctx.fillStyle = '#0e0c16';
+    ctx.fillRect(0, Grog.VIEW_H, Grog.W, 1);
+    if (this.cutscenes > 0) return;
+    // inventory cells + icons (low-res so icons stay chunky)
+    const inv = this.state.inventory;
+    for (const hit of this._hits || []) {
+      if (hit.type === 'item') {
+        ctx.fillStyle = '#222034';
+        ctx.fillRect(hit.x, hit.y, hit.w, hit.h);
+        const item = this.project.items[hit.id];
+        if (item && item.icon) {
+          const img = Grog.rasterFrame(this.project, item.icon, item.frame || Object.keys((this.project.sprites[item.icon] || { frames: {} }).frames)[0]);
+          if (img) {
+            const s = Math.min((hit.w - 2) / img.width, (hit.h - 2) / img.height, 2);
+            const w = Math.max(1, Math.floor(img.width * s)), hh = Math.max(1, Math.floor(img.height * s));
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, hit.x + Math.floor((hit.w - w) / 2), hit.y + Math.floor((hit.h - hh) / 2), w, hh);
+          }
+        }
+      } else if (hit.type === 'scroll') {
+        ctx.fillStyle = '#222034';
+        ctx.fillRect(hit.x, hit.y, hit.w, hit.h);
+      }
+    }
+  };
+
+  E.drawUIText = function () {
+    const hoverHit = (h) => this.mouse.x >= h.x && this.mouse.x < h.x + h.w && this.mouse.y >= h.y && this.mouse.y < h.y + h.h;
+
+    // dialog options replace the whole UI zone
+    if (this.dialog) {
+      this.dialog.hover = -1;
+      this.dialog.options.forEach((o, i) => {
+        const y = Grog.VIEW_H + 4 + i * 10;
+        const hov = this.mouse.y >= y - 1 && this.mouse.y < y + 9;
+        if (hov) this.dialog.hover = i;
+        this.text((hov ? '▸ ' : '  ') + o.opt.text, 6, y, { color: hov ? '#fbf236' : '#99e550', small: true });
+      });
+      this.drawCursorOnly = false;
+      return;
+    }
+    if (this.cutscenes > 0) return;
+
+    // sentence line
+    let sent;
+    if (this.verb || this.heldItem) {
+      const v = this.verbById(this.verb) || { label: 'Use' };
+      sent = v.label;
+      if (this.heldItem) {
+        sent += ' ' + ((this.project.items[this.heldItem] || {}).name || this.heldItem) + ' ' + (v.prep || 'with');
+      }
+      if (this.hover && !(this.hover.type === 'item' && this.hover.id === this.heldItem)) sent += ' ' + this.hover.name;
+    } else {
+      sent = this.hover ? 'Walk to ' + this.hover.name : 'Walk to';
+      if (this.hover && this.hover.type !== 'hotspot' || (this.hover && this.hover.type === 'hotspot')) {
+        // right-click default hint shown via highlight color only
+      }
+    }
+    this.text(sent, Grog.W / 2, Grog.VIEW_H + 3, { align: 'center', color: '#5fcde4', small: true });
+
+    // verb buttons
+    for (const hit of this._hits || []) {
+      if (hit.type === 'verb') {
+        const v = this.verbById(hit.id);
+        const active = this.verb === hit.id;
+        const hov = hoverHit(hit);
+        this.text(v.label, hit.x + 2, hit.y + 2, { color: active ? '#fbf236' : hov ? '#cbdbfc' : '#639bff', small: true });
+      } else if (hit.type === 'scroll') {
+        this.text(hit.dir < 0 ? '▲' : '▼', hit.x + 2, hit.y + 5, { color: '#639bff', small: true });
+      } else if (hit.type === 'menu') {
+        this.text('☰', hit.x + 1, hit.y + 1, { color: hoverHit(hit) ? '#fbf236' : '#639bff', small: true });
+      } else if (hit.type === 'item' && hoverHit(hit)) {
+        // name shown in sentence line via hover
+      }
+    }
+  };
+
+  E.drawMenu = function () {
+    const ctx = this.ctx;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, 0, Grog.W, Grog.H);
+    this._hits = [];
+    const cx = Grog.W / 2;
+    this.text((this.project.meta && this.project.meta.title) || 'Grog', cx, 18, { align: 'center', color: '#fbf236' });
+    const slots = this.saveSlots();
+    let y = 44;
+    const addBtn = (label, data, color) => {
+      const w = 200, x = cx - w / 2;
+      const hov = this.mouse.x >= x && this.mouse.x <= x + w && this.mouse.y >= y - 2 && this.mouse.y < y + 9;
+      this.text(label, cx, y, { align: 'center', color: hov ? '#fbf236' : color || '#cbdbfc', small: true });
+      this._hits.push({ x, y: y - 2, w, h: 11, type: 'menubtn', data });
+      y += 13;
+    };
+    for (let i = 0; i < 3; i++) {
+      const s = slots[i];
+      const label = s ? `Slot ${i + 1}: ${s.room} (${Math.floor(s.playtime / 60)}m)` : `Slot ${i + 1}: — empty —`;
+      addBtn((this.menu.mode === 'save' ? 'Save → ' : 'Load ← ') + label, { slot: i });
+    }
+    y += 4;
+    addBtn(this.menu.mode === 'save' ? '[ Switch to Load ]' : '[ Switch to Save ]', { switch: true }, '#99e550');
+    addBtn(this.audio.musicOn ? 'Music: ON' : 'Music: OFF', { music: true }, '#99e550');
+    addBtn(this.audio.soundOn ? 'Sound: ON' : 'Sound: OFF', { sound: true }, '#99e550');
+    addBtn('[ Back to game ]', { close: true }, '#d95763');
+    this.text('F5 opens this menu anytime', cx, Grog.H - 14, { align: 'center', color: '#847e87', small: true });
+  };
+
+  E.drawCursor = function () {
+    const x = this.mouse.x, y = this.mouse.y;
+    const color = this.hover ? '#fbf236' : '#cbdbfc';
+    const t = this.tctx, S = Grog.TEXT_SCALE;
+    t.fillStyle = '#000';
+    t.fillRect((x - 4) * S - 1, y * S - 1, 8 * S + 2, S + 2);
+    t.fillRect(x * S - 1, (y - 4) * S - 1, S + 2, 8 * S + 2);
+    t.fillStyle = color;
+    t.fillRect((x - 4) * S, y * S, 8 * S, S);
+    t.fillRect(x * S, (y - 4) * S, S, 8 * S);
+  };
+
+  // ---------- input ----------
+  E.onClick = async function (x, y, right) {
+    this.audio.unlock();
+    if (this.menu) {
+      for (const hit of this._hits || []) {
+        if (hit.type === 'menubtn' && x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y < hit.y + hit.h) {
+          const d = hit.data;
+          if (d.close) this.menu = null;
+          else if (d.switch) this.menu.mode = this.menu.mode === 'save' ? 'load' : 'save';
+          else if (d.music) this.audio.musicOn = !this.audio.musicOn;
+          else if (d.sound) this.audio.soundOn = !this.audio.soundOn;
+          else if (d.slot !== undefined) {
+            if (this.menu.mode === 'save') { this.saveGame(d.slot); this.menu = null; }
+            else await this.loadGame(d.slot);
+          }
+          return;
+        }
+      }
+      return;
+    }
+    if (this.dialog) {
+      if (this.dialog.hover >= 0) this.dialog.choose(this.dialog.hover);
+      return;
+    }
+    if (this.cutscenes > 0) { this.skipSpeech(); return; }
+
+    if (y < Grog.VIEW_H) {
+      // room click
+      const target = this.hover;
+      if (target && (target.type === 'hotspot' || target.type === 'actor')) {
+        if (right) { this._startSentence(target.default, target, null); return; }
+        if (this.verb || this.heldItem) { this._startSentence(this.verb || 'use', target, this.heldItem); return; }
+        this._startSentence(target.default === 'walk' ? null : null, target, null, true);
+        return;
+      }
+      // plain walk: cancel any pending sentence walk
+      this._sentenceCancelled = true;
+      this.clearSentence();
+      const p = this.nearestWalkable(x + Math.round(this.camera.x), Math.min(y, Grog.VIEW_H - 2));
+      this.walkTo(this.playerId, p.x, p.y);
+      return;
+    }
+
+    // UI click
+    for (const hit of this._hits || []) {
+      if (x >= hit.x && x < hit.x + hit.w && y >= hit.y && y < hit.y + hit.h) {
+        if (hit.type === 'verb') { this.verb = hit.id; this.heldItem = null; return; }
+        if (hit.type === 'scroll') { this.invScroll += hit.dir; return; }
+        if (hit.type === 'menu') { this.menu = { mode: 'save' }; return; }
+        if (hit.type === 'item') {
+          const target = { type: 'item', id: hit.id };
+          if (right) { this._startSentence('look', target, null); return; }
+          if (this.heldItem && this.heldItem !== hit.id) { this._startSentence(this.verb || 'use', target, this.heldItem); return; }
+          if (this.verb) {
+            const v = this.verbById(this.verb);
+            if (v && v.prep && !this.heldItem) { this.heldItem = hit.id; return; } // "Use X with ..."
+            this._startSentence(this.verb, target, null);
+            return;
+          }
+          this._startSentence('look', target, null);
+          return;
+        }
+      }
+    }
+  };
+
+  // Walk-to-target then run the verb script. Cancellable by clicking elsewhere.
+  E._startSentence = async function (verbId, target, withItem, walkOnly) {
+    this._sentenceCancelled = false;
+    const verb = verbId;
+    this.clearSentence();
+    if (walkOnly && target.type === 'hotspot') {
+      // click a hotspot with no verb: walk to it (its exit script may fire via 'walkto' verb)
+      const h = target.h;
+      const at = h.at || this._hotspotCenter(h);
+      await this.walkTo(this.playerId, at[0], at[1], h.dir);
+      if (this._sentenceCancelled) return;
+      if (h.verbs && h.verbs.walkto) await this.runScript(h.verbs.walkto, { hotspot: h });
+      return;
+    }
+    if (walkOnly && target.type === 'actor') {
+      const a = this.actors[target.id];
+      if (a) await this.walkTo(this.playerId, a.x + (a.x < this.player().x ? 16 : -16), a.y + 2);
+      return;
+    }
+    await this.execVerb(verb || 'use', target, withItem || null);
+  };
+
+  E.onKey = function (e) {
+    if (e.key === 'F5') { e.preventDefault(); this.menu = this.menu ? null : { mode: 'save' }; return; }
+    if (this.menu) { if (e.key === 'Escape') this.menu = null; return; }
+    if (this.dialog) {
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= this.dialog.options.length) this.dialog.choose(n - 1);
+      return;
+    }
+    if (e.key === 'Escape' || e.key === '.') { this.skipSpeech(); return; }
+    if (this.cutscenes > 0) return;
+    for (const v of this.verbs) {
+      if (v.key && e.key.toLowerCase() === v.key) { this.verb = v.id; this.heldItem = null; return; }
+    }
+  };
+})();
+
+/* ==== engine/boot.js ==== */
+/* Grog Engine — boot: one-call game startup. */
+(function () {
+  'use strict';
+  const Grog = window.Grog;
+
+  // Grog.boot(projectOrUrl, container, opts) -> Promise<engine>
+  Grog.boot = async function (project, container, opts = {}) {
+    if (typeof project === 'string') {
+      const res = await fetch(project);
+      project = await res.json();
+    }
+    Grog.clearSpriteCache();
+    const engine = new Grog.Engine(project, container || document.body, opts);
+    document.title = (project.meta && project.meta.title) || document.title;
+    await engine.start();
+    return engine;
+  };
+})();
+
+</script>
+<script>
+window.GROG_PROJECT = {"meta":{"title":"Escape from the Engine Room","author":"Grog Studio","version":"1.0","textSpeed":16,"start":{"room":"engine","x":250,"y":128}},"player":"deb","flags":{},"vars":{},"actors":{"deb":{"name":"Deb Ugger","color":"l","speed":62,"sprite":"deb","anims":{"idle":{"frames":["idleD"],"fps":2},"idleD":{"frames":["idleD"],"fps":2},"idleR":{"frames":["idleR"],"fps":2},"idleL":{"ref":"idleR","flip":true},"idleU":{"frames":["idleU"],"fps":2},"walkR":{"frames":["walkR1","walkR2","walkR3","walkR4"],"fps":8},"walkL":{"ref":"walkR","flip":true},"walkD":{"frames":["walkD1","idleD","walkD2","idleD"],"fps":8},"walkU":{"frames":["walkU1","idleU","walkU2","idleU"],"fps":8},"talk":{"frames":["idleD","talkD2"],"fps":7}}},"sal":{"name":"Sal the Asset Salesman","color":"5","speed":30,"sprite":"sal","default":"talk","anims":{"idle":{"frames":["idleD"],"fps":2},"talk":{"frames":["idleD","talkD2"],"fps":7}},"verbs":{"talk":[{"do":"dialog","id":"sal_talk"}],"look":[{"do":"say","text":"That jacket has more clashing colors than the palette technically allows."}],"give pixels":[{"do":"lose","item":"pixels"},{"do":"say","actor":"sal","text":"Three beautiful pixels! Red, green, and... whatever that one is."},{"do":"say","actor":"sal","text":"Here's your frame. Factory fresh. The factory closed in 1997, but still."},{"do":"give","item":"frame"},{"do":"say","text":"It's... still warm? I have several questions."}],"give chicken":[{"do":"say","actor":"sal","text":"I SELL those. Aisle four. Try to keep up."}],"give mug":[{"do":"say","actor":"sal","text":"A mug? In THIS economy? No refunds, no mugs."}],"give":[{"do":"say","actor":"sal","text":"Hmm. I'll give you nothing for it. Deal? No? Suit yourself."}],"pickup":[{"do":"say","actor":"sal","text":"HA! Sal cannot be acquired. Many have tried."}]}},"tree":{"name":"Dialog Tree","color":"9","speed":0,"sprite":"blank","anims":{"idle":{"frames":["b"],"fps":1}}},"tentacle":{"name":"Suspiciously Purple Tentacle","color":"t","speed":0,"sprite":"tentacle","default":"talk","anims":{"idle":{"frames":["sway1","sway2"],"fps":3},"talk":{"frames":["sway1","sway2"],"fps":7}},"verbs":{"talk":[{"do":"dialog","id":"tentacle_talk"}],"look":[{"do":"say","text":"It's a legally distinct purple appendage."}],"give chicken":[{"do":"say","actor":"tentacle","text":"I have no arms. This is just cruel."}],"give":[{"do":"say","actor":"tentacle","text":"Unless it's world domination, I don't want it."}]}}},"items":{"chicken":{"name":"rubber chicken","icon":"icon_chicken","verbs":{"look":[{"do":"say","text":"A rubber chicken with a USB dongle in the middle. Industry standard."}],"use mug":[{"do":"say","text":"The chicken does not fit in the mug. Worst crossover ever."}]}},"chicken_grog":{"name":"grog-filled chicken","icon":"icon_chicken_grog","verbs":{"look":[{"do":"say","text":"A rubber chicken full of grog. My résumé just keeps improving."}]}},"mug":{"name":"grog mug","icon":"icon_mug","verbs":{"look":[{"do":"say","text":"A regulation grog mug. 40% mug, 60% future holes."}]}},"pixels":{"name":"three loose pixels","icon":"icon_pixels","verbs":{"look":[{"do":"say","text":"Three loose pixels: red, green, and one that identifies as 'magenta-ish'."}],"use frame":[{"do":"say","text":"Tempting, but the frame is display-only."}]}},"frame":{"name":"fresh frame","icon":"icon_frame","verbs":{"look":[{"do":"say","text":"A certified pre-owned frame. Only dropped once."}]}},"semicolon":{"name":"semicolon","icon":"icon_semicolon","verbs":{"look":[{"do":"say","text":"A semicolon. The difference between shipping and a syntax error."}],"use chicken":[{"do":"say","text":"I refuse to punctuate poultry."}]}}},"sprites":{"blank":{"w":1,"frames":{"b":["."]}},"deb":{"w":12,"frames":{"idleD":["....0000....","...000000...","..00000000..","..00777700..","..07171770..","..07777770..","...077770...","....0770....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110.0110.",".0000..0000."],"talkD2":["....0000....","...000000...","..00000000..","..00777700..","..07171770..","..07722770..","...077770...","....0770....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110.0110.",".0000..0000."],"idleR":["....0000....","...000000...","..00000000..","..00007770..","..00007170..","..00007770..","...000770...","....0770....","...0jjjj0...","..0jjjjj0...","..0jjjjjj0..","..0jjjjjj0..","..0jjjjjj0..","..07jjjj70..","..0jjjjj0...","..0011110...","..0111100...","..0111100...","...01100....","...01100....","...01100....","...00000...."],"walkR1":["....0000....","...000000...","..00000000..","..00007770..","..00007170..","..00007770..","...000770...","....0770....","...0jjjj0...","..0jjjjj0...","..0jjjjjj0..","..0jjjjjj0..","..0jjjjjj0..","..07jjjj70..","..0jjjjj0...","..0011110...","..0111100...","..0111100...","..011010....","..0110110...",".0110.0110..",".0000.0000.."],"walkR2":["....0000....","...000000...","..00000000..","..00007770..","..00007170..","..00007770..","...000770...","....0770....","...0jjjj0...","..0jjjjj0...","..0jjjjjj0..","..0jjjjjj0..","..0jjjjjj0..","..07jjjj70..","..0jjjjj0...","..0011110...","..0111100...","..0111100...","...01100....","...01100....","...01100....","...00000...."],"walkR3":["....0000....","...000000...","..00000000..","..00007770..","..00007170..","..00007770..","...000770...","....0770....","...0jjjj0...","..0jjjjj0...","..0jjjjjj0..","..0jjjjjj0..","..0jjjjjj0..","..07jjjj70..","..0jjjjj0...","..0011110...","..0111100...","..0111100...","..0110110...",".01100.110..",".0110..0110.",".0000..0000."],"walkR4":["....0000....","...000000...","..00000000..","..00007770..","..00007170..","..00007770..","...000770...","....0770....","...0jjjj0...","..0jjjjj0...","..0jjjjjj0..","..0jjjjjj0..","..0jjjjjj0..","..07jjjj70..","..0jjjjj0...","..0011110...","..0111100...","..0111100...","...01100....","...01100....","...01100....","...00000...."],"idleU":["....0000....","...000000...","..00000000..","..00000000..","..00000000..","..00000000..","...000000...","....0000....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110.0110.",".0000..0000."],"walkU1":["....0000....","...000000...","..00000000..","..00000000..","..00000000..","..00000000..","...000000...","....0000....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110......",".0000..0000."],"walkU2":["....0000....","...000000...","..00000000..","..00000000..","..00000000..","..00000000..","...000000...","....0000....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.",".....0110...",".0000..0000."],"walkD1":["....0000....","...000000...","..00000000..","..00777700..","..07171770..","..07777770..","...077770...","....0770....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110......",".0000..0000."],"walkD2":["....0000....","...000000...","..00000000..","..00777700..","..07171770..","..07777770..","...077770...","....0770....","...0jjjj0...","..0jjjjjj0..",".0jjjjjjjj0.",".0j0jjjj0j0.",".0j0jjjj0j0.",".070jjjj070.","..0jjjjjj0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.",".....0110...",".0000..0000."]}},"sal":{"w":12,"frames":{"idleD":["....llll....","...llllll...","..00000000..","..00777700..","..07171770..","..07777770..","...077770...","....0770....","...05r5r0...","..05r5r5r0..",".05r5r5r5r0.",".0r5r5r5r50.",".05r5r5r5r0.",".070r5r5070.","..05r5r5r0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110.0110.",".0000..0000."],"talkD2":["....llll....","...llllll...","..00000000..","..00777700..","..07171770..","..07722770..","...077770...","....0770....","...05r5r0...","..05r5r5r0..",".05r5r5r5r0.",".0r5r5r5r50.",".05r5r5r5r0.",".070r5r5070.","..05r5r5r0..","..00111100..","..01111110..","..01111110..","..0110.0110.","..0110.0110.","..0110.0110.",".0000..0000."]}},"tentacle":{"w":10,"frames":{"sway1":["...qqqq...","..qqqqqq..",".qqqqqqqq.",".qqqqqqqq.",".qq0qq0qq.",".qqqqqqqq.",".qq0000qq.",".qqqqqqqq.",".qqqqqqqq.","..qqqqqq..","..qqqqqq..","...qqqq...","...qqqq...","..qqqq....",".qqqq.....",".qqq......"],"sway2":["...qqqq...","..qqqqqq..",".qqqqqqqq.",".qqqqqqqq.",".qq0qq0qq.",".qqqqqqqq.",".qq0000qq.",".qqqqqqqq.",".qqqqqqqq.","..qqqqqq..","..qqqqqq..","...qqqq...","...qqqq...","....qqqq..",".....qqqq.","......qqq."]}},"icon_chicken":{"w":10,"frames":{"i":["....88....","...8888...","..888888..",".l8888888.",".88888888.","..888888..","...8..8...","...5..5..."]}},"icon_chicken_grog":{"w":10,"frames":{"i":["....88....","...8898...","..889988..",".l8899888.",".88999888.","..899988..","...9..9...","...5..5..."]}},"icon_mug":{"w":10,"frames":{"i":[".nnnnnn...",".n7777n.n.",".n7777nnn.",".n7777n.n.",".n7777n...",".nnnnnn...","..........",".........."]}},"icon_pixels":{"w":10,"frames":{"i":["..........","..rr..jj..","..rr..jj..","..........","....99....","....99....","..tt......","..tt......"]}},"icon_frame":{"w":10,"frames":{"i":["llllllllll","lkkkkkkkkl","lkkjjkkkkl","lkkkkkkkkl","lkkkkjjkkl","lkkkkkkkkl","llllllllll",".0.0.0.0.."]}},"icon_semicolon":{"w":10,"frames":{"i":["....88....","....88....","..........","....88....","....88....",".....8....","....8.....",".........."]}},"icon_bug":{"w":8,"frames":{"i":[".0....0.","..rrrr..",".rrrrrr.","..rrrr..",".0....0."]}}},"rooms":{"engine":{"name":"Engine Room","music":"theme","paint":[{"op":"grad","x":0,"y":0,"w":320,"h":40,"from":"1","to":"e"},{"op":"rect","x":0,"y":40,"w":320,"h":64,"c":"e"},{"op":"rect","x":0,"y":6,"w":320,"h":5,"c":"p"},{"op":"rect","x":0,"y":16,"w":320,"h":4,"c":"o"},{"op":"ellipse","x":40,"y":8,"rx":3,"ry":3,"c":"n"},{"op":"ellipse","x":200,"y":8,"rx":3,"ry":3,"c":"n"},{"op":"ellipse","x":280,"y":18,"rx":3,"ry":3,"c":"r"},{"op":"rect","x":92,"y":20,"w":10,"h":26,"c":"p"},{"op":"rect","x":0,"y":104,"w":320,"h":40,"c":"3"},{"op":"rect","x":0,"y":104,"w":320,"h":2,"c":"2"},{"op":"line","x1":32,"y1":106,"x2":32,"y2":144,"c":"2"},{"op":"line","x1":64,"y1":106,"x2":64,"y2":144,"c":"2"},{"op":"line","x1":96,"y1":106,"x2":96,"y2":144,"c":"2"},{"op":"line","x1":128,"y1":106,"x2":128,"y2":144,"c":"2"},{"op":"line","x1":160,"y1":106,"x2":160,"y2":144,"c":"2"},{"op":"line","x1":192,"y1":106,"x2":192,"y2":144,"c":"2"},{"op":"line","x1":224,"y1":106,"x2":224,"y2":144,"c":"2"},{"op":"line","x1":256,"y1":106,"x2":256,"y2":144,"c":"2"},{"op":"line","x1":288,"y1":106,"x2":288,"y2":144,"c":"2"},{"op":"ellipse","x":96,"y":44,"rx":34,"ry":7,"c":"n"},{"op":"rect","x":62,"y":44,"w":68,"h":62,"c":"o"},{"op":"rect","x":82,"y":66,"w":28,"h":30,"c":"p"},{"op":"rect","x":106,"y":78,"w":3,"h":7,"c":"n"},{"op":"ellipse","x":74,"y":56,"rx":5,"ry":5,"c":"k"},{"op":"line","x1":74,"y1":56,"x2":77,"y2":53,"c":"r"},{"op":"scatter","x":64,"y":46,"w":64,"h":58,"c":"n","n":24,"seed":4},{"op":"rect","x":66,"y":106,"w":8,"h":6,"c":"p"},{"op":"rect","x":118,"y":106,"w":8,"h":6,"c":"p"},{"op":"rect","x":147,"y":86,"w":10,"h":6,"c":"p"},{"op":"rect","x":168,"y":52,"w":26,"h":34,"c":"7"},{"op":"line","x1":168,"y1":52,"x2":194,"y2":52,"c":"3"},{"op":"line","x1":168,"y1":86,"x2":194,"y2":86,"c":"3"},{"op":"line","x1":168,"y1":52,"x2":168,"y2":86,"c":"3"},{"op":"line","x1":194,"y1":52,"x2":194,"y2":86,"c":"3"},{"op":"ellipse","x":181,"y":62,"rx":5,"ry":5,"c":"5"},{"op":"rect","x":173,"y":71,"w":16,"h":2,"c":"n"},{"op":"rect","x":175,"y":75,"w":12,"h":2,"c":"n"},{"op":"rect","x":178,"y":79,"w":7,"h":2,"c":"n"},{"op":"rect","x":208,"y":66,"w":38,"h":4,"c":"4"},{"op":"rect","x":211,"y":70,"w":3,"h":7,"c":"3"},{"op":"rect","x":240,"y":70,"w":3,"h":7,"c":"3"},{"op":"rect","x":258,"y":58,"w":12,"h":28,"c":"n"},{"op":"rect","x":252,"y":68,"w":7,"h":3,"c":"m"},{"op":"ellipse","x":264,"y":56,"rx":4,"ry":3,"c":"r"},{"op":"rect","x":250,"y":90,"w":22,"h":15,"c":"4"},{"op":"line","x1":250,"y1":94,"x2":272,"y2":94,"c":"3"},{"op":"line","x1":250,"y1":100,"x2":272,"y2":100,"c":"3"},{"op":"ellipse","x":240,"y":32,"rx":11,"ry":11,"c":"g"},{"op":"ellipse","x":240,"y":32,"rx":8,"ry":8,"c":"j"},{"op":"rect","x":234,"y":28,"w":7,"h":2,"c":"k"},{"op":"rect","x":288,"y":58,"w":28,"h":54,"c":"4"},{"op":"line","x1":288,"y1":58,"x2":288,"y2":112,"c":"3"},{"op":"line","x1":315,"y1":58,"x2":315,"y2":112,"c":"3"},{"op":"line","x1":288,"y1":58,"x2":315,"y2":58,"c":"3"},{"op":"ellipse","x":302,"y":76,"rx":6,"ry":6,"c":"g"},{"op":"rect","x":4,"y":62,"w":22,"h":50,"c":"1"},{"op":"line","x1":4,"y1":62,"x2":26,"y2":62,"c":"2"},{"op":"line","x1":4,"y1":62,"x2":4,"y2":112,"c":"2"},{"op":"line","x1":26,"y1":62,"x2":26,"y2":112,"c":"2"},{"op":"scatter","x":4,"y":62,"w":22,"h":50,"c":"c","n":18,"seed":12},{"op":"rect","x":166,"y":28,"w":12,"h":88,"c":"p","z":116},{"op":"line","x1":168,"y1":28,"x2":168,"y2":116,"c":"n","z":116}],"walk":[[8,108,164,108,164,142,8,142],[180,108,312,108,312,142,180,142],[164,120,180,120,180,142,164,142]],"scale":{"y1":104,"s1":0.82,"y2":142,"s2":1},"enter":[{"do":"if","cond":"!intro_done","then":[{"do":"set","flag":"intro_done"},{"do":"wait","ms":400},{"do":"title","text":"GROG ENGINE presents","ms":2200},{"do":"title","text":"ESCAPE FROM THE ENGINE ROOM","sub":"or: The Secret of the Monkey Island Build Server","ms":3000},{"do":"say","text":"Ugh. One minute I'm filing bug #1337 — 'game engine eats QA tester' —"},{"do":"say","text":"...and the next, I'm INSIDE the engine. The bug report writes itself. From within."},{"do":"say","actor":"narrator","text":"Restart the Main Loop to escape. The boiler requires: fuel, a fresh frame, and terminating punctuation."},{"do":"say","text":"Fuel, frame, semicolon. How hard can it be?"},{"do":"say","actor":"narrator","text":"(Achievement unlocked: Famous Last Words.)"}]}],"hotspots":[{"id":"pipes","name":"pipes","rect":[0,4,320,18],"at":[200,116],"noWalk":false,"verbs":{"look":[{"do":"say","text":"The RENDER pipe and the AUDIO pipe. Do NOT cross the streams."}],"pull":[{"do":"say","text":"The pipes are hard-coded. Literally. Someone wrote them in pen."}],"use":[{"do":"say","text":"I'd need a plumber. Wrong franchise."}]}},{"id":"boiler","name":"Main Loop boiler","rect":[60,40,72,68],"at":[96,118],"state":"closed","states":{"closed":{"verbs":{"open":[{"do":"sound","id":"open"},{"do":"state","hotspot":"boiler","state":"open"},{"do":"say","text":"The firebox swings open with a dramatic creak. Nice foley work."}],"look":[{"do":"say","text":"The Main Loop boiler. Cold as a code freeze."}],"use chicken_grog":[{"do":"say","text":"I should open the firebox first. Even grog respects encapsulation."}],"use semicolon":[{"do":"say","text":"The firebox is closed. Punctuation can't fix everything."}],"use frame":[{"do":"say","text":"Firebox first. Then frame. Order of operations."}]}},"open":{"paint":[{"op":"rect","x":84,"y":68,"w":24,"h":26,"c":"1"}],"verbs":{"close":[{"do":"sound","id":"close"},{"do":"state","hotspot":"boiler","state":"closed"},{"do":"say","text":"Closed. The boiler sighs."}],"look":[{"do":"say","text":"The firebox is open. It hungers for fuel, frames, and punctuation."}],"use chicken_grog":[{"do":"lose","item":"chicken_grog"},{"do":"sound","id":"splash"},{"do":"set","flag":"boiler_fueled"},{"do":"say","text":"GLUG. GLUG. GLUG. The boiler burps politely."},{"do":"give","item":"chicken","silent":true},{"do":"say","text":"The chicken survives. The chicken always survives."}],"use semicolon":[{"do":"lose","item":"semicolon"},{"do":"sound","id":"ding"},{"do":"set","flag":"boiler_semicolon"},{"do":"say","text":"The semicolon slots into the infinite loop. Somewhere, a while(true) finally rests."}],"use frame":[{"do":"lose","item":"frame"},{"do":"sound","id":"teleport"},{"do":"set","flag":"boiler_frame"},{"do":"say","text":"The fresh frame primes the render pump. Smells like new tab."}],"use mug":[{"do":"say","text":"The boiler drinks grog, not mugs. It has standards."}],"use chicken":[{"do":"say","text":"An EMPTY chicken? The boiler is insulted."}]}}},"verbs":{"pickup":[{"do":"say","text":"It weighs as much as technical debt."}],"push":[{"do":"say","text":"The boiler pushes back. Emotionally."}]}},{"id":"gauge","name":"progress gauge","rect":[68,50,13,13],"at":[80,118],"verbs":{"look":[{"cond":"boiler_fueled && boiler_semicolon && boiler_frame","actions":[{"do":"say","text":"Gauge reads 100%. A round number. Suspicious, but I'll take it."}]},{"cond":"boiler_fueled || boiler_semicolon || boiler_frame","actions":[{"do":"say","text":"The needle twitched! For this engine, that's practically a sprint."}]},{"cond":"","actions":[{"do":"say","text":"The needle reads ZERO. Same as my frame budget."}]}]}},{"id":"lever","name":"SHIP IT lever","rect":[146,66,16,26],"at":[152,118],"state":"up","states":{"up":{"paint":[{"op":"line","x1":152,"y1":86,"x2":158,"y2":70,"c":"n","w":2},{"op":"ellipse","x":158,"y":70,"rx":3,"ry":3,"c":"r"}]},"down":{"paint":[{"op":"line","x1":152,"y1":86,"x2":158,"y2":98,"c":"n","w":2},{"op":"ellipse","x":158,"y":98,"rx":3,"ry":3,"c":"r"}]}},"verbs":{"look":[{"do":"say","text":"The Master Lever. The label says 'SHIP IT'. The subtext says 'please'."}],"push":[{"do":"say","text":"It's a PULL lever. The engine is pedantic about input methods."}],"pull":[{"do":"if","cond":"engine_running","then":[{"do":"say","text":"We shipped. It's over. Please, no sequels."}],"else":[{"do":"if","cond":"boiler_fueled && boiler_semicolon && boiler_frame","then":[{"do":"call","script":"ending"}],"else":[{"do":"random","of":[[{"do":"sound","id":"error"},{"do":"say","actor":"narrator","text":"CRITICAL: MainLoop not ready. Have you tried grog?"}],[{"do":"sound","id":"error"},{"do":"say","text":"Nothing. The boiler wants its three offerings: fuel, frame, punctuation."}],[{"do":"sound","id":"error"},{"do":"say","text":"A distant voice whispers: 'works on my machine'."}]]}]}]}]}},{"id":"poster","name":"motivational poster","rect":[168,52,26,34],"at":[181,116],"verbs":{"look":[{"do":"say","text":"Employee of the Month: the LOOK AT verb. Nine months running."}],"push":[{"do":"say","text":"Behind the poster: solid wall. This isn't that kind of game. ...Is it? No. It is not."}]}},{"id":"mug_shelf","name":"grog mug","rect":[212,52,24,14],"at":[224,116],"state":"there","states":{"there":{"paint":[{"op":"sprite","id":"icon_mug","x":216,"y":58}],"verbs":{"look":[{"do":"say","text":"A grog mug. The pinnacle of disposable container technology."}],"pickup":[{"do":"state","hotspot":"mug_shelf","state":"gone"},{"do":"give","item":"mug"},{"do":"say","text":"One regulation grog mug. What could possibly go wrong?"}]}},"gone":{"name":"empty shelf","verbs":{"look":[{"do":"say","text":"The shelf misses its mug already."}]}}}},{"id":"tap","name":"coolant tap","rect":[252,54,20,34],"at":[262,118],"verbs":{"look":[{"do":"say","text":"'COOLANT', says the label. 'GROG XD', says the barrel below. The barrel is winning."}],"use":[{"do":"say","text":"I need a container. Preferably one that won't dissolve."}],"open":[{"do":"say","text":"Not without a container. I've seen what this stuff does to floors."}],"use mug":[{"do":"sound","id":"splash"},{"do":"lose","item":"mug"},{"do":"set","flag":"mug_dissolved"},{"do":"say","text":"The grog dissolves the mug in 1.3 seconds."},{"do":"say","actor":"narrator","text":"A new personal record, notes the barrel."}],"use chicken":[{"do":"sound","id":"splash"},{"do":"lose","item":"chicken"},{"do":"give","item":"chicken_grog"},{"do":"say","text":"The rubber chicken fills with grog and shows no signs of dissolving."},{"do":"say","text":"Finally. A use for this thing. Somewhere, Ron Gilbert nods."}],"use chicken_grog":[{"do":"say","text":"It's already full. Greed is a bug, not a feature."}]}},{"id":"barrel","name":"grog barrel","rect":[248,88,26,18],"at":[260,120],"verbs":{"look":[{"do":"say","text":"GROG XD — the extra-dissolvent blend. Now with 20% more X."}],"open":[{"do":"say","text":"The barrel is sealed by union rules."}]}},{"id":"toolbox","name":"toolbox","rect":[32,108,30,16],"at":[46,128],"state":"closed","states":{"closed":{"paint":[{"op":"rect","x":34,"y":112,"w":26,"h":10,"c":"r"},{"op":"line","x1":44,"y1":110,"x2":52,"y2":110,"c":"n"}],"verbs":{"look":[{"do":"say","text":"A toolbox. Property of the Build Engineer. Missing since the Great Refactor."}],"open":[{"do":"sound","id":"open"},{"do":"state","hotspot":"toolbox","state":"open"},{"do":"say","text":"The toolbox creaks open."}]}},"open":{"paint":[{"op":"rect","x":34,"y":104,"w":26,"h":5,"c":"s"},{"op":"rect","x":34,"y":114,"w":26,"h":8,"c":"r"},{"op":"rect","x":36,"y":115,"w":22,"h":6,"c":"1"},{"op":"rect","x":40,"y":116,"w":7,"h":4,"c":"8"}],"verbs":{"look":[{"do":"say","text":"Inside: one rubber chicken, one USB dongle, zero tools. Checks out."}],"pickup":[{"do":"state","hotspot":"toolbox","state":"empty"},{"do":"give","item":"chicken"},{"do":"say","text":"A rubber chicken with a USB dongle in the middle. Finally, some real engineering."}],"close":[{"do":"sound","id":"close"},{"do":"state","hotspot":"toolbox","state":"closed"}]}},"empty":{"paint":[{"op":"rect","x":34,"y":104,"w":26,"h":5,"c":"s"},{"op":"rect","x":34,"y":114,"w":26,"h":8,"c":"r"},{"op":"rect","x":36,"y":115,"w":22,"h":6,"c":"1"}],"verbs":{"look":[{"do":"say","text":"Empty, except for a sticker: 'WORKS ON MY MACHINE'."}],"close":[{"do":"sound","id":"close"},{"do":"state","hotspot":"toolbox","state":"closed"}]}}}},{"id":"bug","name":"bug","rect":[196,116,12,9],"at":[202,130],"paint":[{"op":"sprite","id":"icon_bug","x":198,"y":118}],"verbs":{"look":[{"do":"say","text":"A bug. It's been in the engine since 1990. At this point it's load-bearing."}],"pickup":[{"do":"say","text":"It's not a feature yet. Give it time."}],"talk":[{"do":"say","text":"Hello, bug."},{"do":"say","actor":"narrator","text":"The bug files a report about YOU."}],"use":[{"do":"say","text":"Not without a repro case."}]}},{"id":"column","name":"column","rect":[164,28,16,88],"at":[172,126],"verbs":{"look":[{"do":"say","text":"A structural walk-behind column."},{"do":"say","actor":"narrator","text":"(You can walk behind it. This cost three entire lines of code.)"}]}},{"id":"porthole","name":"porthole","rect":[228,20,24,24],"at":[240,114],"verbs":{"look":[{"do":"say","text":"Outside: the skybox. It's a JPEG of a nicer game."}],"open":[{"do":"say","text":"And let the z-fighting in? No thanks."}]}},{"id":"door_dock","name":"shipping door","rect":[286,54,32,60],"at":[298,120],"dir":"R","verbs":{"look":[{"do":"say","text":"The shipping door. Beyond it: the Asset Dock, where content goes to be monetized."}],"open":[{"do":"goto","room":"dock","x":24,"y":124,"dir":"R"}],"walkto":[{"do":"goto","room":"dock","x":24,"y":124,"dir":"R"}]}},{"id":"hatch_grove","name":"overgrown hatch","rect":[2,58,26,56],"at":[20,120],"dir":"L","verbs":{"look":[{"do":"say","text":"A hatch overgrown with vines. The air smells of... nested conversation."}],"walkto":[{"do":"goto","room":"grove","x":290,"y":126,"dir":"L"}],"open":[{"do":"goto","room":"grove","x":290,"y":126,"dir":"L"}]}}]},"dock":{"name":"Asset Dock","music":"dock","w":480,"paint":[{"op":"grad","x":0,"y":0,"w":480,"h":62,"from":"1","to":"f"},{"op":"scatter","x":0,"y":0,"w":480,"h":42,"c":"l","n":40,"seed":7},{"op":"ellipse","x":430,"y":18,"rx":9,"ry":9,"c":"k"},{"op":"ellipse","x":427,"y":16,"rx":3,"ry":3,"c":"m"},{"op":"poly","pts":[30,62,95,62,100,50,104,62,130,62,124,72,34,72],"c":"1"},{"op":"line","x1":100,"y1":50,"x2":100,"y2":40,"c":"1"},{"op":"rect","x":0,"y":60,"w":480,"h":40,"c":"g"},{"op":"rect","x":0,"y":60,"w":480,"h":3,"c":"f"},{"op":"scatter","x":0,"y":66,"w":480,"h":30,"c":"j","n":60,"seed":3},{"op":"rect","x":0,"y":100,"w":480,"h":44,"c":"4"},{"op":"rect","x":0,"y":100,"w":480,"h":3,"c":"3"},{"op":"line","x1":40,"y1":103,"x2":40,"y2":144,"c":"3"},{"op":"line","x1":80,"y1":103,"x2":80,"y2":144,"c":"3"},{"op":"line","x1":120,"y1":103,"x2":120,"y2":144,"c":"3"},{"op":"line","x1":160,"y1":103,"x2":160,"y2":144,"c":"3"},{"op":"line","x1":200,"y1":103,"x2":200,"y2":144,"c":"3"},{"op":"line","x1":240,"y1":103,"x2":240,"y2":144,"c":"3"},{"op":"line","x1":280,"y1":103,"x2":280,"y2":144,"c":"3"},{"op":"line","x1":320,"y1":103,"x2":320,"y2":144,"c":"3"},{"op":"line","x1":360,"y1":103,"x2":360,"y2":144,"c":"3"},{"op":"line","x1":400,"y1":103,"x2":400,"y2":144,"c":"3"},{"op":"line","x1":440,"y1":103,"x2":440,"y2":144,"c":"3"},{"op":"rect","x":20,"y":94,"w":6,"h":10,"c":"3"},{"op":"rect","x":150,"y":94,"w":6,"h":10,"c":"3"},{"op":"rect","x":300,"y":94,"w":6,"h":10,"c":"3"},{"op":"rect","x":452,"y":94,"w":6,"h":10,"c":"3"},{"op":"rect","x":60,"y":76,"w":30,"h":24,"c":"6"},{"op":"line","x1":60,"y1":76,"x2":90,"y2":76,"c":"v"},{"op":"line","x1":60,"y1":88,"x2":90,"y2":88,"c":"v"},{"op":"line","x1":75,"y1":76,"x2":75,"y2":100,"c":"v"},{"op":"rect","x":95,"y":84,"w":22,"h":16,"c":"6"},{"op":"line","x1":95,"y1":92,"x2":117,"y2":92,"c":"v"},{"op":"rect","x":360,"y":92,"w":70,"h":14,"c":"4"},{"op":"line","x1":360,"y1":92,"x2":430,"y2":92,"c":"6"},{"op":"rect","x":360,"y":66,"w":3,"h":26,"c":"3"},{"op":"rect","x":427,"y":66,"w":3,"h":26,"c":"3"},{"op":"rect","x":356,"y":58,"w":11,"h":8,"c":"r"},{"op":"rect","x":367,"y":58,"w":11,"h":8,"c":"l"},{"op":"rect","x":378,"y":58,"w":11,"h":8,"c":"r"},{"op":"rect","x":389,"y":58,"w":11,"h":8,"c":"l"},{"op":"rect","x":400,"y":58,"w":11,"h":8,"c":"r"},{"op":"rect","x":411,"y":58,"w":11,"h":8,"c":"l"},{"op":"rect","x":422,"y":58,"w":12,"h":8,"c":"r"},{"op":"rect","x":370,"y":74,"w":50,"h":12,"c":"7"},{"op":"rect","x":374,"y":77,"w":30,"h":2,"c":"5"},{"op":"rect","x":374,"y":81,"w":40,"h":2,"c":"5"}],"walk":[[8,106,470,106,470,140,8,140]],"scale":{"y1":106,"s1":0.9,"y2":140,"s2":1},"actors":{"sal":{"x":395,"y":124,"dir":"D"},"tentacle":{"x":216,"y":100,"dir":"D","hidden":true}},"enter":[{"do":"if","cond":"!dock_seen","then":[{"do":"set","flag":"dock_seen"},{"do":"say","text":"The Asset Dock. Everything the engine loads ships through here."},{"do":"say","text":"This room SCROLLS, by the way. Very expensive feature. Try to look impressed."}]}],"hotspots":[{"id":"door_engine","name":"engine room door","rect":[0,88,16,52],"at":[16,124],"dir":"L","verbs":{"look":[{"do":"say","text":"Back to the Engine Room, where the magic segfaults."}],"walkto":[{"do":"goto","room":"engine","x":296,"y":120,"dir":"L"}],"open":[{"do":"goto","room":"engine","x":296,"y":120,"dir":"L"}]}},{"id":"crates","name":"asset crates","rect":[58,74,62,26],"at":[90,118],"verbs":{"look":[{"do":"say","text":"Crates labeled 'SPRITES, ASSORTED, SLIGHTLY DEFECTIVE' and 'TODO: art'."}],"open":[{"do":"say","text":"Nailed shut. The nails are also assets. Sal counted them."}],"push":[{"do":"say","text":"I'm QA, not logistics."}]}},{"id":"tentacle_crate","name":"suspicious crate","rect":[198,78,36,24],"at":[216,120],"state":"closed","states":{"closed":{"paint":[{"op":"rect","x":200,"y":80,"w":32,"h":20,"c":"6"},{"op":"line","x1":200,"y1":90,"x2":232,"y2":90,"c":"v"},{"op":"rect","x":206,"y":83,"w":20,"h":5,"c":"7"},{"op":"line","x1":208,"y1":85,"x2":224,"y2":85,"c":"3"}],"verbs":{"look":[{"do":"say","text":"The label reads: 'MISC VILLAIN, PURPLE, ONE (1)'. It's... breathing?"}],"open":[{"do":"sound","id":"open"},{"do":"state","hotspot":"tentacle_crate","state":"open"},{"do":"actor","id":"tentacle","hidden":false},{"do":"say","actor":"tentacle","text":"FREEDOM! ...This is still the dock, isn't it."},{"do":"say","text":"The crate had a tentacle. Of course the crate had a tentacle."}]}},"open":{"name":"opened crate","paint":[{"op":"rect","x":200,"y":84,"w":32,"h":16,"c":"6"},{"op":"rect","x":202,"y":86,"w":28,"h":12,"c":"1"},{"op":"poly","pts":[232,84,244,72,248,78,234,88],"c":"6"}],"verbs":{"look":[{"do":"say","text":"An open crate. The packing peanuts are tiny compressed textures."}],"close":[{"do":"say","actor":"tentacle","text":"Try it. I dare you."}]}}}},{"id":"water","name":"water","rect":[0,60,480,38],"at":[240,112],"noWalk":true,"verbs":{"look":[{"do":"say","text":"The water is one gradient op and one scatter op. Very cost-effective. Very wet."}],"use":[{"do":"say","text":"Swim in unallocated memory? Hard pass."}]}},{"id":"ship","name":"ship","rect":[28,44,104,28],"at":[80,112],"noWalk":true,"verbs":{"look":[{"do":"say","text":"The good ship Dependency. She hasn't shipped in years."}]}},{"id":"moon","name":"moon","rect":[418,8,24,22],"at":[420,112],"noWalk":true,"verbs":{"look":[{"do":"say","text":"It's just a white ellipse with a gray ellipse on it. Gorgeous."}]}},{"id":"sign","name":"Sal's sign","rect":[368,72,54,16],"at":[394,120],"verbs":{"look":[{"do":"say","text":"'SAL'S SLIGHTLY USED ASSETS — Every pixel has a past.'"}]}},{"id":"beach_path","name":"path to the beach","rect":[464,88,16,52],"at":[462,124],"dir":"R","verbs":{"look":[{"do":"say","text":"A sunny path to Boundary Beach, where the map ends and the lawyers begin."}],"walkto":[{"do":"goto","room":"beach","x":28,"y":126,"dir":"R"}]}}]},"beach":{"name":"Boundary Beach","music":"beach","paint":[{"op":"grad","x":0,"y":0,"w":320,"h":60,"from":"j","to":"k"},{"op":"ellipse","x":262,"y":18,"rx":10,"ry":10,"c":"8"},{"op":"rect","x":0,"y":58,"w":320,"h":2,"c":"g"},{"op":"rect","x":0,"y":60,"w":320,"h":32,"c":"g"},{"op":"scatter","x":0,"y":62,"w":320,"h":28,"c":"j","n":46,"seed":3},{"op":"scatter","x":0,"y":64,"w":320,"h":10,"c":"l","n":10,"seed":8},{"op":"grad","x":0,"y":92,"w":320,"h":52,"from":"6","to":"7"},{"op":"rect","x":0,"y":90,"w":320,"h":3,"c":"5"},{"op":"scatter","x":0,"y":100,"w":320,"h":40,"c":"6","n":40,"seed":21},{"op":"rect","x":118,"y":127,"w":4,"h":8,"c":"b"},{"op":"rect","x":119,"y":125,"w":2,"h":2,"c":"6"},{"op":"scatter","x":306,"y":62,"w":12,"h":78,"c":"k","n":14,"seed":9},{"op":"poly","pts":[46,122,54,122,60,72,50,70],"c":"4","z":123},{"op":"poly","pts":[38,66,56,58,74,66,58,72],"c":"a","z":123},{"op":"poly","pts":[30,74,52,62,58,72,40,80],"c":"c","z":123},{"op":"poly","pts":[58,72,66,60,84,70,64,78],"c":"c","z":123},{"op":"ellipse","x":56,"y":70,"rx":3,"ry":3,"c":"3","z":123}],"walk":[[60,64,290,64,306,140,8,140]],"scale":{"y1":64,"s1":0.25,"y2":140,"s2":1},"enter":[{"do":"if","cond":"!beach_seen","then":[{"do":"set","flag":"beach_seen"},{"do":"say","text":"Boundary Beach. Walk toward the horizon and watch me shrink."},{"do":"say","text":"It's called 'the scale band'. It's cheaper than 3D and twice as funny."}]}],"hotspots":[{"id":"sky","name":"horizon","rect":[0,0,320,58],"at":[160,70],"noWalk":true,"verbs":{"look":[{"do":"say","text":"From here I can see the skybox seam. Don't tell the art director."}]}},{"id":"sea","name":"sea","rect":[0,58,320,32],"at":[160,96],"noWalk":true,"verbs":{"look":[{"do":"say","text":"The sea. Endless, blue, and clipped at exactly y=92."}],"use":[{"do":"say","text":"I'd swim, but my collision box can't."}]}},{"id":"palm","name":"palm tree","rect":[30,56,50,68],"at":[66,126],"verbs":{"look":[{"do":"say","text":"A palm tree. You can walk behind it. Depth sorting: the unsung hero."}],"push":[{"do":"say","text":"A coconut declines to fall. It's rigged. Literally — no physics engine."}]}},{"id":"rock","name":"rock","rect":[214,108,34,20],"at":[222,130],"state":"there","states":{"there":{"paint":[{"op":"ellipse","x":230,"y":118,"rx":14,"ry":9,"c":"o"},{"op":"ellipse","x":226,"y":115,"rx":6,"ry":3,"c":"n"}],"verbs":{"look":[{"do":"say","text":"A rock. Suspiciously pushable-looking."}],"push":[{"do":"sound","id":"thunk"},{"do":"state","hotspot":"rock","state":"pushed"},{"do":"show","hotspot":"loose_pixels"},{"do":"say","text":"It moved! Underneath: three loose pixels and one very surprised crab function."}],"pickup":[{"do":"say","text":"It's a rock, not an asset. Well. It IS an asset. But no."}],"pull":[{"do":"say","text":"Pushing feels more heroic."}]}},"pushed":{"paint":[{"op":"ellipse","x":258,"y":120,"rx":14,"ry":9,"c":"o"},{"op":"ellipse","x":254,"y":117,"rx":6,"ry":3,"c":"n"}],"verbs":{"look":[{"do":"say","text":"The rock, relocated. It seems happier here."}],"push":[{"do":"say","text":"It's been through enough."}]}}}},{"id":"loose_pixels","name":"loose pixels","rect":[218,112,14,10],"at":[224,130],"hidden":true,"paint":[{"op":"rect","x":220,"y":114,"w":2,"h":2,"c":"r"},{"op":"rect","x":225,"y":117,"w":2,"h":2,"c":"9"},{"op":"rect","x":229,"y":113,"w":2,"h":2,"c":"t"}],"verbs":{"look":[{"do":"say","text":"Three loose pixels, still warm from the framebuffer."}],"pickup":[{"do":"hide","hotspot":"loose_pixels"},{"do":"give","item":"pixels"},{"do":"say","text":"Three pixels. I'm rich in the worst possible currency."}]}},{"id":"bottle","name":"message in a bottle","rect":[114,124,12,14],"at":[122,134],"verbs":{"look":[{"do":"say","text":"A note inside reads: 'HELP, I'M TRAPPED IN A GAME ENGINE FACTORY.' ...Relatable."}],"pickup":[{"do":"say","text":"The bottle is load-bearing. The beach would collapse. Trust me, I'm QA."}],"open":[{"do":"say","text":"The cork is a compressed texture. It won't budge."}]}},{"id":"invisible_wall","name":"invisible wall","rect":[304,60,16,80],"at":[296,120],"dir":"R","verbs":{"look":[{"do":"say","text":"The legendary Invisible Wall. The engine's oldest employee."}],"push":[{"do":"say","text":"The wall doesn't move. The wall has tenure."}],"use":[{"do":"sound","id":"thunk"},{"do":"say","text":"OW. Invisible, yes. Intangible, no."}],"talk":[{"do":"say","text":"Any comment on the edge of the world?"},{"do":"say","actor":"narrator","text":"The wall declines to comment. It is, after all, just four walk polygon vertices."}]}},{"id":"exit_dock","name":"path to the dock","rect":[0,88,12,52],"at":[14,126],"dir":"L","verbs":{"look":[{"do":"say","text":"Back to the Asset Dock."}],"walkto":[{"do":"goto","room":"dock","x":456,"y":124,"dir":"L"}]}}]},"grove":{"name":"Dialog Tree Grove","music":"grove","paint":[{"op":"fill","c":"1"},{"op":"poly","pts":[0,0,320,0,320,34,160,46,0,40],"c":"c"},{"op":"scatter","x":0,"y":4,"w":320,"h":36,"c":"a","n":50,"seed":5},{"op":"scatter","x":0,"y":10,"w":320,"h":44,"c":"8","n":14,"seed":11},{"op":"line","x1":40,"y1":38,"x2":40,"y2":58,"c":"c"},{"op":"line","x1":260,"y1":34,"x2":260,"y2":60,"c":"c"},{"op":"rect","x":0,"y":100,"w":320,"h":44,"c":"e"},{"op":"scatter","x":0,"y":102,"w":320,"h":40,"c":"c","n":46,"seed":6},{"op":"poly","pts":[120,100,200,100,210,144,110,144],"c":"d"},{"op":"poly","pts":[124,104,196,104,188,32,132,32],"c":"3"},{"op":"line","x1":140,"y1":100,"x2":136,"y2":40,"c":"2"},{"op":"line","x1":176,"y1":98,"x2":182,"y2":44,"c":"2"},{"op":"poly","pts":[104,108,124,100,128,108,108,114],"c":"3"},{"op":"poly","pts":[196,100,216,106,212,114,192,108],"c":"3"},{"op":"poly","pts":[132,32,188,32,200,14,160,4,120,14],"c":"c"},{"op":"scatter","x":124,"y":6,"w":72,"h":26,"c":"a","n":30,"seed":14},{"op":"ellipse","x":148,"y":58,"rx":4,"ry":6,"c":"0"},{"op":"ellipse","x":172,"y":58,"rx":4,"ry":6,"c":"0"},{"op":"ellipse","x":149,"y":56,"rx":1,"ry":2,"c":"8"},{"op":"ellipse","x":173,"y":56,"rx":1,"ry":2,"c":"8"},{"op":"line","x1":142,"y1":50,"x2":154,"y2":48,"c":"2"},{"op":"line","x1":166,"y1":48,"x2":178,"y2":50,"c":"2"},{"op":"poly","pts":[150,78,170,78,166,84,154,84],"c":"0"},{"op":"ellipse","x":160,"y":68,"rx":3,"ry":4,"c":"2"},{"op":"ellipse","x":58,"y":118,"rx":7,"ry":4,"c":"r"},{"op":"rect","x":56,"y":120,"w":4,"h":5,"c":"7"},{"op":"ellipse","x":55,"y":116,"rx":1,"ry":1,"c":"l"},{"op":"ellipse","x":61,"y":117,"rx":1,"ry":1,"c":"l"},{"op":"ellipse","x":70,"y":124,"rx":5,"ry":3,"c":"r"},{"op":"rect","x":69,"y":125,"w":3,"h":4,"c":"7"},{"op":"scatter","x":20,"y":60,"w":280,"h":50,"c":"8","n":8,"seed":19}],"walk":[[24,108,296,108,296,140,24,140]],"scale":{"y1":108,"s1":0.85,"y2":140,"s2":1},"actors":{"tree":{"x":160,"y":54}},"enter":[{"do":"if","cond":"!grove_seen","then":[{"do":"set","flag":"grove_seen"},{"do":"say","text":"A grove. And in the middle... a tree with a FACE."},{"do":"say","actor":"tree","text":"I am the DIALOG TREE. All conversation flows through my branches."},{"do":"say","text":"Of course it talks. Of course it does."}]}],"hotspots":[{"id":"tree_hs","name":"Dialog Tree","rect":[104,4,112,110],"at":[160,122],"default":"talk","verbs":{"talk":[{"do":"dialog","id":"tree_talk"}],"look":[{"do":"say","text":"A Dialog Tree. Every conversation in the industry was picked from one of these."}],"use":[{"do":"say","text":"You don't 'use' a Dialog Tree. You ENDURE it."}],"push":[{"do":"say","actor":"tree","text":"Rude. I have deep roots and deeper grudges."}],"pickup":[{"do":"say","actor":"tree","text":"I am NOT an inventory item. I'm a data structure with feelings."}]}},{"id":"semicolon_drop","name":"semicolon","rect":[150,106,18,16],"at":[158,126],"hidden":true,"paint":[{"op":"sprite","id":"icon_semicolon","x":152,"y":106}],"verbs":{"look":[{"do":"say","text":"A gleaming semicolon, nestled in the roots."}],"pickup":[{"do":"hide","hotspot":"semicolon_drop"},{"do":"give","item":"semicolon"},{"do":"say","text":"One semicolon, slightly used. I will guard it with my life."}]}},{"id":"mushrooms","name":"mushrooms","rect":[48,110,30,18],"at":[64,130],"verbs":{"look":[{"do":"say","text":"Save points. Obsolete since autosave. They're bitter about it."}],"pickup":[{"do":"say","text":"They hiss: 'F5 killed our whole industry.' I back away slowly."}],"talk":[{"do":"say","text":"How's retirement, guys?"},{"do":"say","actor":"narrator","text":"The mushrooms reminisce about 1997 in tiny, bitter voices."}]}},{"id":"canopy","name":"canopy","rect":[0,0,320,46],"at":[160,112],"noWalk":true,"verbs":{"look":[{"do":"say","text":"The canopy glows with option-fruits. Some are grayed out. Requirements not met."}]}},{"id":"exit_engine","name":"way back","rect":[304,80,16,60],"at":[294,126],"dir":"R","verbs":{"look":[{"do":"say","text":"Back to the Engine Room."}],"walkto":[{"do":"goto","room":"engine","x":24,"y":122,"dir":"R"}]}}]}},"dialogs":{"sal_talk":{"start":"root","nodes":{"root":{"options":[{"text":"What exactly are you selling?","once":true,"next":"root","actions":[{"do":"say","actor":"sal","text":"Only the finest certified pre-owned assets! Sprites with one careful owner!"},{"do":"say","actor":"sal","text":"Idle animations, barely idled! And today only: a gently used walk cycle. It limps, but that's CHARACTER."}]},{"text":"I need a fresh frame for the render pump.","next":"root","actions":[{"do":"say","actor":"sal","text":"A FRESH frame? Ooh. Pricey. Three pixels, non-negotiable."},{"do":"say","actor":"sal","text":"Loose ones, mind you. I don't take framebuffer credit."},{"do":"set","flag":"sal_price_known"}]},{"text":"Where do I find loose pixels?","cond":"sal_price_known","once":true,"next":"root","actions":[{"do":"say","actor":"sal","text":"Boundary Beach, past the dock. Pixels wash up under the rocks."},{"do":"say","actor":"sal","text":"Dead pixels float. Live ones hide. Bring a rock-pushing attitude."}]},{"text":"Three pixels?! That's robbery!","cond":"sal_price_known","once":true,"next":"root","actions":[{"do":"say","actor":"sal","text":"Robbery? These are ARTISANAL pixels. Hand-placed. Locally sourced."},{"do":"say","actor":"sal","text":"Fine. Three pixels and I throw in a free compliment: you have LOVELY collision bounds."}]},{"text":"Where am I, exactly?","once":true,"next":"root","actions":[{"do":"say","actor":"sal","text":"The Asset Dock! Everything the engine loads ships through here."},{"do":"say","actor":"sal","text":"Twenty years on this dock, and the crates STILL say 'TODO: art'."}]},{"text":"Goodbye, Sal.","end":true,"actions":[{"do":"say","actor":"sal","text":"Come back anytime! Sal's assets never depreciate! ...Legally I must add: they do."}]}]}}},"tree_talk":{"start":"root","nodes":{"root":{"options":[{"text":"Hi. I'm Deb. I need a semicolon.","cond":"!tree_beaten","next":"r1","actions":[{"do":"say","actor":"tree","text":"A semicolon! My rarest fruit. It hangs from my highest branch."},{"do":"say","actor":"tree","text":"Defeat me in TALK COMBAT and it falls. Insults and comebacks. Classic rules."},{"do":"say","actor":"tree","text":"I have more branches than your git repository, small tester. Prepare yourself."}]},{"text":"Nice bark. Very... textured.","once":true,"next":"root","actions":[{"do":"say","actor":"tree","text":"It's a 9-slice. Don't touch it."}]},{"text":"About that semicolon...","cond":"tree_beaten","end":true,"actions":[{"do":"say","actor":"tree","text":"Under my roots. Take it and go, before I think of a comeback."}]},{"text":"Goodbye, tree.","end":true,"actions":[{"do":"say","actor":"tree","text":"Make like YOU, and leave. Wait. That's not how the joke goes."}]}]},"r1":{"actions":[{"do":"say","actor":"tree","text":"ROUND ONE! You fight like a QA tester!"}],"options":[{"text":"And you're about as sharp as a rounded corner.","next":"r2","actions":[{"do":"say","actor":"tree","text":"...Acceptable. ROUND TWO approaches."}]},{"text":"Oh yeah? Well... shut up!","next":"r1","actions":[{"do":"say","actor":"tree","text":"Devastating. My sap runs cold. Try again."}]},{"text":"My mother was a text parser!","next":"r1","actions":[{"do":"say","actor":"tree","text":"I know. Lovely woman. Terrible grammar. AGAIN!"}]}]},"r2":{"actions":[{"do":"say","actor":"tree","text":"ROUND TWO! My canopy has better coverage than your unit tests!"}],"options":[{"text":"Coverage means nothing when half your branches are dead code.","next":"r3","actions":[{"do":"say","actor":"tree","text":"OOF. Right in the heartwood. FINAL ROUND!"}]},{"text":"Trees can't even run tests!","next":"r2","actions":[{"do":"say","actor":"tree","text":"Neither can you, apparently. AGAIN!"}]},{"text":"That's... that's not even an insult!","next":"r2","actions":[{"do":"say","actor":"tree","text":"Neither is that. Round two continues!"}]}]},"r3":{"actions":[{"do":"say","actor":"tree","text":"FINAL ROUND! I've been version-controlled since before you were a feature request!"}],"options":[{"text":"Then it's time somebody pruned the main branch.","end":true,"actions":[{"do":"sound","id":"laugh"},{"do":"say","actor":"tree","text":"HA! HAHAHA! *creak* FINE! FINE! You win!"},{"do":"say","actor":"tree","text":"One semicolon, as promised. It fell off a for-loop in 1993. Cherish it."},{"do":"set","flag":"tree_beaten"},{"do":"show","hotspot":"semicolon_drop"},{"do":"sound","id":"ding"}]},{"text":"Version control THIS!","next":"r3","actions":[{"do":"say","actor":"tree","text":"Compelling. But no. AGAIN!"}]},{"text":"I... uh... your leaves are ugly?","next":"r3","actions":[{"do":"say","actor":"tree","text":"My leaves are PROCEDURAL. Round three continues!"}]}]}}},"tentacle_talk":{"start":"root","nodes":{"root":{"options":[{"text":"Are you okay? You were in a crate.","once":true,"next":"root","actions":[{"do":"say","actor":"tentacle","text":"Okay? OKAY? I've been in shipping since 1993!"},{"do":"say","actor":"tentacle","text":"The label says 'MISC VILLAIN'. I am NOT misc. I am PREMIUM villain."}]},{"text":"You look strangely familiar.","once":true,"next":"root","actions":[{"do":"say","actor":"tentacle","text":"I get that a lot. I was ALMOST a star, once. Then the rights lawyers came."},{"do":"say","actor":"tentacle","text":"Now I'm 'legally distinct'. It says so on my tag."}]},{"text":"What do you want out of life?","once":true,"next":"root","actions":[{"do":"say","actor":"tentacle","text":"World domination. Or a speaking role. At this point, honestly? Either."}]},{"text":"Bye. Stay... tentacle-y.","end":true,"actions":[{"do":"say","actor":"tentacle","text":"TREMBLE BEFORE ME! ...Please visit again. It gets lonely on the dock."}]}]}}}},"scripts":{"ending":[{"do":"set","flag":"engine_running"},{"do":"state","hotspot":"lever","state":"down","room":"engine"},{"do":"face","dir":"U"},{"do":"say","text":"Okay. Semicolon: installed. Frame: primed. Grog: ...chickened."},{"do":"say","text":"Ladies and gentlemen — we SHIP."},{"do":"sound","id":"teleport"},{"do":"shake","ms":700},{"do":"music","id":"victory"},{"do":"wait","ms":600},{"do":"say","actor":"narrator","text":"Somewhere, a build pipeline turns green for the first time in years."},{"do":"title","text":"THE ENGINE ROARS TO LIFE","sub":"(in a cozy, WebAudio sort of way)","ms":2800},{"do":"say","text":"It compiles! IT COMPILES! Quick, nobody touch anything!"},{"do":"sound","id":"fanfare"},{"do":"title","text":"ESCAPE FROM THE ENGINE ROOM","sub":"A Grog Engine demo — 100% JSON, 0% binary assets","ms":3000},{"do":"say","actor":"narrator","text":"Deb was promoted to Senior Semicolon Architect."},{"do":"say","actor":"narrator","text":"The tentacle got his spin-off. It was cancelled after one episode."},{"do":"say","actor":"narrator","text":"Sal sold this ending to three other games."},{"do":"sound","id":"fanfare"},{"do":"end","text":"THE END","sub":"Made with Grog Studio — now go make your own"}]},"music":{"theme":{"bpm":100,"steps":2,"tracks":[{"wave":"square","vol":0.1,"notes":"A3 . C4 . E4 . D4 C4 B3 . G3 . A3 . . . A3 . C4 . E4 . G4 E4 D4 . B3 . C4 . . ."},{"wave":"triangle","vol":0.18,"notes":"A2 . . . E2 . . . F2 . . . E2 . . . A2 . . . E2 . . . D2 . . . E2 . . ."},{"wave":"noise","vol":0.05,"notes":"x . . . x . . . x . . . x . x ."}]},"dock":{"bpm":122,"steps":2,"tracks":[{"wave":"square","vol":0.1,"notes":"C4 E4 G4 E4 A4 G4 E4 C4 D4 F4 A4 F4 G4 . E4 . C4 E4 G4 E4 A4 G4 E4 G4 C5 . B4 G4 C5 . . ."},{"wave":"triangle","vol":0.18,"notes":"C3 . G2 . A2 . E2 . F2 . C3 . G2 . G2 . C3 . G2 . A2 . E2 . F2 . G2 . C3 . . ."},{"wave":"noise","vol":0.05,"notes":"x . x . x . x x x . x . x . x ."}]},"beach":{"bpm":88,"steps":2,"tracks":[{"wave":"triangle","vol":0.12,"notes":"E4 . G4 . B4 . A4 . G4 . E4 . D4 . E4 . . . E4 . G4 . A4 . G4 . E4 . D4 . C4 . . ."},{"wave":"triangle","vol":0.15,"notes":"C3 . . . A2 . . . F2 . . . G2 . . ."},{"wave":"noise","vol":0.03,"notes":"x . . . . . . . x . . . . . . ."}]},"grove":{"bpm":80,"steps":2,"tracks":[{"wave":"square","vol":0.08,"notes":"D4 . F4 . Ab4 . F4 . D4 . E4 . F4 . . . D4 . F4 . Ab4 . G4 . F4 . E4 . D4 . . ."},{"wave":"triangle","vol":0.16,"notes":"D2 . . . . . . . Bb2 . . . . . . . D2 . . . . . . . A2 . . . . . . ."},{"wave":"noise","vol":0.03,"notes":". . . . x . . . . . . . x . . ."}]},"victory":{"bpm":132,"steps":2,"tracks":[{"wave":"square","vol":0.12,"notes":"C4 E4 G4 C5 . G4 C5 E5 . C5 E5 G5 C5 . G4 . A4 C5 E5 A5 . E5 A5 C5 G4 B4 D5 G5 C5 . . ."},{"wave":"triangle","vol":0.2,"notes":"C3 . C3 . F2 . F2 . A2 . A2 . G2 . G2 . A2 . A2 . D3 . D3 . G2 . G2 . C3 . . ."},{"wave":"noise","vol":0.06,"notes":"x . x x x . x . x . x x x . x x"}]}},"defaults":{"look":["It's remarkably unremarkable.","I see nothing special. And I'm a trained observer.","Yep. That's definitely one of the objects of all time."],"pickup":["I don't need it. Probably. ...No, I don't need it.","My inventory has standards.","That asset is still under license."],"use":["That doesn't seem to work.","Nope. Not even with duct tape.","The engine politely declines."],"open":["It doesn't open.","Access denied. It's not even locked, it's just rude."],"close":["It's as closed as it gets."],"push":["It won't budge.","I push. Nothing happens. Story of my career."],"pull":["Pulling accomplishes remarkably little."],"talk":["It has nothing to say. Lucky thing.","I talk. It doesn't. Classic one-sided relationship."],"give":["It doesn't want my stuff."]}};
+Grog.boot(window.GROG_PROJECT, '#game');
+</script>
+</body>
+</html>
