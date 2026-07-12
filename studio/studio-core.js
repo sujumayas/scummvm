@@ -134,9 +134,9 @@
     }, 400);
   };
 
-  Studio.blankProject = function () {
+  Studio.blankProject = function (pipeline) {
     return {
-      meta: { title: 'My Adventure', author: '', version: '0.1', textSpeed: 15, start: { room: 'room1', x: 160, y: 120 } },
+      meta: { title: 'My Adventure', author: '', version: '0.1', textSpeed: 15, pipeline: pipeline || 'paint', start: { room: 'room1', x: 160, y: 120 } },
       player: 'hero',
       flags: {}, vars: {},
       actors: {
@@ -168,6 +168,7 @@
           enter: [],
         },
       },
+      assets: {},
       dialogs: {}, scripts: {}, music: {}, sounds: {}, defaults: {},
     };
   };
@@ -175,6 +176,7 @@
   // ---------- sidebar ----------
   const GROUPS = [
     { key: 'rooms', label: 'Rooms', type: 'room' },
+    { key: 'assets', label: 'Assets', type: 'asset' },
     { key: 'sprites', label: 'Sprites', type: 'sprite' },
     { key: 'actors', label: 'Actors', type: 'actor' },
     { key: 'items', label: 'Items', type: 'item' },
@@ -245,6 +247,7 @@
 
   Studio.addEntity = function (g) {
     const P = Studio.state.project;
+    if (g.key === 'assets') { Studio.importAssets(); return; }
     Studio.prompt(`New ${g.label.slice(0, -1).toLowerCase()} id`, '', (v) => {
       const T = {
         rooms: () => ({ name: v, paint: [{ op: 'fill', c: '1' }], walk: [[10, 100, 310, 100, 310, 140, 10, 140]], hotspots: [], enter: [] }),
@@ -275,13 +278,15 @@
       editor.appendChild(el(`<div class="panel"><h2>Welcome to Grog Studio</h2>
         <p>Pick something in the sidebar, or:</p>
         <div class="row" style="margin-top:8px">
-          <button id="btn-load-demo" class="primary">Load the demo game (Escape from the Engine Room)</button>
+          <button id="btn-load-demo" class="primary">Load demo: Escape from the Engine Room (drawn pixels)</button>
+          <button id="btn-load-demo2" class="primary">Load demo: The Case of the Missing Pixel (imported assets)</button>
           <button id="btn-start-blank">Start a blank project</button>
         </div>
         <h3>What is this?</h3>
         <p class="hint">Grog Studio is a complete authoring tool for classic point-and-click adventures.
         Edit rooms, pixel art, scripts, dialogs and music — then play instantly and export a single HTML file that runs anywhere.</p></div>`));
-      $('#btn-load-demo', editor).addEventListener('click', Studio.loadDemo);
+      $('#btn-load-demo', editor).addEventListener('click', () => Studio.loadDemo());
+      $('#btn-load-demo2', editor).addEventListener('click', () => Studio.loadDemo('../demo/missing-pixel.grog.json'));
       $('#btn-start-blank', editor).addEventListener('click', () => { Studio.state.project = Studio.blankProject(); Studio.touch(); Studio.renderAll(); });
       return;
     }
@@ -290,9 +295,9 @@
     else editor.appendChild(el(`<div class="panel">No editor for ${type}</div>`));
   };
 
-  Studio.loadDemo = async function () {
+  Studio.loadDemo = async function (url) {
     try {
-      const res = await fetch('../demo/engine-room.grog.json');
+      const res = await fetch(url || '../demo/engine-room.grog.json');
       Studio.state.project = await res.json();
       Studio.state.sel = { type: 'room', id: Object.keys(Studio.state.project.rooms)[0] };
       Studio.touch();
@@ -308,8 +313,26 @@
     const warn = (m) => problems.push({ level: 'warn', m });
     const COLORS = '0123456789abcdefghijklmnopstuvqr. ';
     for (const [sid, spr] of Object.entries(P.sprites || {})) {
+      if (spr.sheet) {
+        if (!(P.assets || {})[spr.sheet.asset]) err(`sprite ${sid}: sheet asset '${spr.sheet.asset}' missing`);
+        continue;
+      }
       for (const [fid, rows] of Object.entries(spr.frames || {})) {
+        if (!Array.isArray(rows)) { err(`sprite ${sid}.${fid}: not a pixel grid (did you mean a sheet sprite?)`); continue; }
         rows.forEach((row, i) => { if (row.length !== spr.w) err(`sprite ${sid}.${fid} row ${i}: length ${row.length} ≠ w ${spr.w}`); });
+      }
+    }
+    const checkPaint = (ops, where) => {
+      for (const op of ops || []) {
+        if (op.op === 'image' && !(P.assets || {})[op.id]) err(`${where}: image op references missing asset '${op.id}'`);
+        if (op.op === 'sprite' && !(P.sprites || {})[op.id]) err(`${where}: sprite op references missing sprite '${op.id}'`);
+      }
+    };
+    for (const [rid, room] of Object.entries(P.rooms || {})) {
+      checkPaint(room.paint, `room ${rid}.paint`);
+      for (const h of room.hotspots || []) {
+        checkPaint(h.paint, `room ${rid}.${h.id}.paint`);
+        for (const [st, sd] of Object.entries(h.states || {})) checkPaint(sd.paint, `room ${rid}.${h.id}[${st}].paint`);
       }
     }
     for (const [aid, a] of Object.entries(P.actors || {})) {
@@ -317,7 +340,7 @@
       if (!spr) { err(`actor ${aid}: sprite '${a.sprite}' missing`); continue; }
       for (const [an, d] of Object.entries(a.anims || {})) {
         if (d.ref) { if (!a.anims[d.ref]) err(`actor ${aid} anim ${an}: ref '${d.ref}' missing`); continue; }
-        for (const f of d.frames || []) if (!spr.frames[f]) err(`actor ${aid} anim ${an}: frame '${f}' missing`);
+        for (const f of d.frames || []) if ((spr.frames || {})[f] === undefined) err(`actor ${aid} anim ${an}: frame '${f}' missing`);
       }
     }
     for (const [iid, it] of Object.entries(P.items || {})) {
@@ -388,11 +411,23 @@
     if (!Studio.state.project) {
       Studio.state.project = Studio.blankProject();
     }
-    $('#btn-new').addEventListener('click', () => Studio.confirm('New project', 'Discard the current project and start fresh? (Your browser autosave will be overwritten.)', () => {
-      Studio.state.project = Studio.blankProject();
-      Studio.state.sel = { type: null, id: null };
-      Studio.touch(); Studio.renderAll();
-    }));
+    $('#btn-new').addEventListener('click', () => {
+      const body = el(`<div>
+        <p>Pick the art pipeline for the new project. This just sets defaults — every project can freely mix both.</p>
+        <div class="row" style="margin-top:10px"><button id="np-paint" class="primary">Classic paint — draw everything in Studio (paint ops + pixel sprites)</button></div>
+        <div class="row"><button id="np-assets" class="primary">Imported assets — PNG backgrounds & sprite sheets from your art tools</button></div>
+        <p class="hint">The current project's browser autosave will be replaced (use “Save file” first to keep it).</p>
+      </div>`);
+      Studio.modal('New project', body, [{ label: 'Cancel' }]);
+      const start = (pipeline) => {
+        Studio.state.project = Studio.blankProject(pipeline);
+        Studio.state.sel = { type: null, id: null };
+        Studio.closeModal(); Studio.touch(); Studio.renderAll();
+        if (pipeline === 'assets') Studio.status('Asset project created — click “+” next to ASSETS to import your PNGs.');
+      };
+      body.querySelector('#np-paint').addEventListener('click', () => start('paint'));
+      body.querySelector('#np-assets').addEventListener('click', () => start('assets'));
+    });
     $('#btn-open').addEventListener('click', () => $('#file-open').click());
     $('#file-open').addEventListener('change', async (e) => {
       const f = e.target.files[0];

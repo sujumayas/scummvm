@@ -134,6 +134,30 @@ The **player** is just an actor (Settings → Player actor). NPCs are placed per
 room (“Actors in room…”), can start `hidden` (tentacle in a crate), and can be
 moved/revealed with the `actor` command.
 
+## 4½. Imported assets (the modern pipeline)
+
+Prefer drawing in Aseprite/Photoshop — or generating art with AI? Import it:
+
+1. **Assets → +** — pick PNGs. They're stored as data URIs *inside* the project
+   JSON (exports stay single-file; nothing can go missing).
+2. **Backgrounds**: open the asset → *Set as background* (target 320×144, or
+   wider for a scrolling room — the *Resize* tool has a fit-320×144 button).
+   Then draw walk polygons and hotspots over it exactly as usual.
+3. **Characters**: open the asset → set the frame cell size → *Create sheet
+   sprite*. A numbered grid shows each cell; name the frames (idleD, w1, w2…)
+   and reference them from actor animations like any drawn sprite.
+   Mirroring still works (`walkL = {ref:"walkR", flip:true}`).
+4. **Interactive elements / states**: a hotspot state's paint can be an
+   `image` op — e.g. a `door_open.png` overlay on top of the background.
+   Give an image op a `z` to make it a walk-behind foreground cutout.
+
+Tips: kill backgrounds' baked-in characters by prompting/erasing them out;
+put sprites on a flat magenta background and key it before import (or import
+with transparency). Imported art keeps its full colors — the DB32 palette only
+constrains *drawn* sprites and paint ops. Both pipelines mix freely in one
+room: the noir demo's inventory pixel icon is hand-drawn while everything else
+is imported.
+
 ## 5. Dialogs
 
 A dialog is nodes → options. Options can be gated (`cond`), one-shot (`once`),

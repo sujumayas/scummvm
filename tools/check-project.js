@@ -10,11 +10,30 @@ const warn = (m) => console.warn('warn: ' + m);
 // sprites: every frame row must match sprite width, only legal chars
 const COLORS = '0123456789abcdefghijklmnopqrstuv. ';
 for (const [sid, spr] of Object.entries(P.sprites || {})) {
+  if (spr.sheet) {
+    if (!(P.assets || {})[spr.sheet.asset]) err(`sprite ${sid}: sheet asset '${spr.sheet.asset}' missing`);
+    continue;
+  }
   for (const [fid, rows] of Object.entries(spr.frames || {})) {
+    if (!Array.isArray(rows)) { err(`sprite ${sid}.${fid}: not a pixel grid`); continue; }
     rows.forEach((row, i) => {
       if (row.length !== spr.w) err(`sprite ${sid}.${fid} row ${i}: length ${row.length} != w ${spr.w}`);
       for (const ch of row) if (!COLORS.includes(ch)) err(`sprite ${sid}.${fid} row ${i}: bad char '${ch}'`);
     });
+  }
+}
+// image ops reference assets
+function checkPaint(ops, where) {
+  for (const op of ops || []) {
+    if (op.op === 'image' && !(P.assets || {})[op.id]) err(`${where}: image op references missing asset '${op.id}'`);
+    if (op.op === 'sprite' && !(P.sprites || {})[op.id]) err(`${where}: sprite op references missing sprite '${op.id}'`);
+  }
+}
+for (const [rid, room] of Object.entries(P.rooms || {})) {
+  checkPaint(room.paint, `room ${rid}.paint`);
+  for (const h of room.hotspots || []) {
+    checkPaint(h.paint, `room ${rid}.${h.id}.paint`);
+    for (const [st, sd] of Object.entries(h.states || {})) checkPaint(sd.paint, `room ${rid}.${h.id}[${st}].paint`);
   }
 }
 // actors reference sprites + anim frames exist
@@ -23,7 +42,7 @@ for (const [aid, a] of Object.entries(P.actors || {})) {
   if (!spr) { err(`actor ${aid}: sprite '${a.sprite}' missing`); continue; }
   for (const [an, def] of Object.entries(a.anims || {})) {
     if (def.ref) { if (!a.anims[def.ref]) err(`actor ${aid} anim ${an}: ref '${def.ref}' missing`); continue; }
-    for (const f of def.frames || []) if (!spr.frames[f]) err(`actor ${aid} anim ${an}: frame '${f}' missing in sprite ${a.sprite}`);
+    for (const f of def.frames || []) if ((spr.frames || {})[f] === undefined) err(`actor ${aid} anim ${an}: frame '${f}' missing in sprite ${a.sprite}`);
   }
 }
 // items reference icon sprites

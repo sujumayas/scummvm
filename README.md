@@ -67,6 +67,34 @@ that is already ported everywhere — the web. Porting story:
 - **Project check** finds dangling references (rooms, items, dialogs, frames)
   before your players do.
 
+## Two art pipelines, one platform
+
+When you create a project, Grog Studio asks which **art pipeline** you want —
+and every project can freely mix both:
+
+| | Classic paint | Imported assets |
+|---|---|---|
+| Backgrounds | paint ops drawn in Studio | **PNG images** (any art tool, or AI-generated) |
+| Characters | text-grid pixel sprites | **sprite sheets** sliced from PNGs |
+| Objects / states | paint ops per state | image overlays per state |
+| Stored as | JSON ops | data URIs inside the same JSON |
+
+Imported images live *inside* the project JSON, so the single-file export never
+breaks. The asset workflow: **Assets → + → import PNG** → “Set as background” /
+“Create sheet sprite” (a numbered grid slicer names your animation frames) →
+draw walk areas and hotspots over the image as usual. Full color — imported art
+is not forced through the retro palette.
+
+Proof: the second demo, **The Case of the Missing Pixel** — a one-room noir
+mystery whose office background, trench-coat detective (Rae Tracer, P.I.) and
+coffee mug were AI-generated, imported, chroma-keyed and sheet-sliced entirely
+through this pipeline. Play it: `play.html?project=demo/missing-pixel.grog.json`.
+
+| | |
+|---|---|
+| ![Noir office](docs/screenshots/noir-office.png) | ![Asset editor](docs/screenshots/studio-asset-editor.png) |
+| Imported-asset demo (AI-generated art) | The asset editor: slice, resize, set-as-background |
+
 ## The engine, technically
 
 320×200 native (integer-scaled, room viewport 320×144 — SCUMM's own layout),
@@ -109,7 +137,7 @@ lines of code and wants you to know it.
 engine/        the Grog runtime (7 files, no deps)
 studio/        Grog Studio authoring app (no deps)
 play.html      player shell (demo / ?project=url / Studio playtest host)
-demo/          engine-room.grog.json — the demo game (data only!)
+demo/          engine-room.grog.json (drawn) · missing-pixel.grog.json (imported assets)
 tools/         check-project.js — CLI project linter (node tools/check-project.js file)
 docs/          ARCHITECTURE.md · AUTHORING.md · RESEARCH.md · screenshots
 ```

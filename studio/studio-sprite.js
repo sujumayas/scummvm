@@ -11,6 +11,7 @@
     const P = Studio.state.project;
     const spr = P.sprites[id];
     if (!spr) return;
+    if (spr.sheet) return sheetSpriteEditor(editor, insp, id, spr);
     const frames = Object.keys(spr.frames);
     if (!ed.frame || !spr.frames[ed.frame]) ed.frame = frames[0];
     const rows = spr.frames[ed.frame] || [];
@@ -202,6 +203,83 @@
     }, 1000 / 8);
     insp.appendChild(el('<div class="hint">Cycles through all frames in order.</div>'));
   };
+
+  // ---------- sheet sprite editor (frames = cells of an imported asset) ----------
+  function sheetSpriteEditor(editor, insp, id, spr) {
+    const P = Studio.state.project;
+    const asset = (P.assets || {})[spr.sheet.asset];
+    const pane = el('<div></div>');
+    pane.appendChild(el(`<h2>Sheet sprite: ${id} <span class="hint">from asset “${spr.sheet.asset}” · cell ${spr.sheet.fw}×${spr.sheet.fh}</span></h2>`));
+    if (!asset) {
+      pane.appendChild(el(`<div class="panel" style="color:var(--danger)">Asset “${spr.sheet.asset}” is missing.</div>`));
+      editor.appendChild(pane);
+      return;
+    }
+    const props = el('<div class="panel"></div>');
+    props.appendChild(Studio.field('Asset', Studio.select(Object.keys(P.assets), spr.sheet.asset, (v) => { spr.sheet.asset = v; Grog.clearSpriteCache(); Studio.touch(); Studio.renderAll(); })));
+    props.appendChild(Studio.field('Cell w', Studio.num(spr.sheet.fw, (v) => { spr.sheet.fw = v; Grog.clearSpriteCache(); Studio.touch(); Studio.renderAll(); })));
+    props.appendChild(Studio.field('Cell h', Studio.num(spr.sheet.fh, (v) => { spr.sheet.fh = v; Grog.clearSpriteCache(); Studio.touch(); Studio.renderAll(); })));
+    pane.appendChild(props);
+
+    // sheet preview with numbered grid
+    const zoom = Math.max(1, Math.min(4, Math.floor(620 / asset.w)));
+    const cv = el(`<canvas class="pixelated" width="${asset.w}" height="${asset.h}" style="width:${asset.w * zoom}px;border:1px solid var(--line);background:repeating-conic-gradient(#2a2734 0 25%, #211e2b 0 50%) 0 0/16px 16px"></canvas>`);
+    pane.appendChild(cv);
+    (async () => {
+      await Grog.loadAssets(P);
+      const img = Grog.asset(spr.sheet.asset);
+      const ctx = cv.getContext('2d');
+      if (img) ctx.drawImage(img, 0, 0);
+      ctx.strokeStyle = '#fbf23688';
+      const fw = spr.sheet.fw, fh = spr.sheet.fh;
+      const cols = Math.max(1, Math.floor(asset.w / fw));
+      for (let x = 0; x <= asset.w; x += fw) { ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, asset.h); ctx.stroke(); }
+      for (let y = 0; y <= asset.h; y += fh) { ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(asset.w, y + 0.5); ctx.stroke(); }
+      ctx.fillStyle = '#fbf236'; ctx.font = '9px monospace';
+      const total = cols * Math.max(1, Math.floor(asset.h / fh));
+      for (let i = 0; i < total; i++) ctx.fillText(String(i), (i % cols) * fw + 2, Math.floor(i / cols) * fh + 10);
+    })();
+
+    pane.appendChild(el('<h3>Named frames <span class="hint">(name → cell index; actor animations reference these names)</span></h3>'));
+    const list = el('<div class="list"></div>');
+    const renderFrames = () => {
+      list.innerHTML = '';
+      for (const [fn, ref] of Object.entries(spr.frames || {})) {
+        const row = el(`<div class="list-row"><b style="width:90px">${fn}</b></div>`);
+        const idxIn = Studio.num(Array.isArray(ref) ? ref[0] : ref, (v) => { spr.frames[fn] = v; Grog.clearSpriteCache(); Studio.touch(); });
+        row.appendChild(idxIn);
+        const img = Grog.rasterFrame(P, id, fn);
+        if (img) {
+          const th = el(`<canvas class="pixelated" width="${img.width}" height="${img.height}" style="height:32px;background:#111"></canvas>`);
+          th.getContext('2d').drawImage(img, 0, 0);
+          row.appendChild(th);
+        }
+        const del = el('<button class="small danger" style="margin-left:auto">✕</button>');
+        del.addEventListener('click', () => { delete spr.frames[fn]; Grog.clearSpriteCache(); Studio.touch(); Studio.renderAll(); });
+        row.appendChild(del);
+        list.appendChild(row);
+      }
+    };
+    renderFrames();
+    pane.appendChild(list);
+    const addRow = el('<div class="row"></div>');
+    const nameIn = Studio.text('', () => { });
+    nameIn.placeholder = 'frame name (e.g. walkR1)';
+    const idxIn2 = Studio.num(0, () => { });
+    const addB = el('<button class="small">+ Add frame</button>');
+    addB.addEventListener('click', () => {
+      const n = nameIn.value.trim();
+      if (!n) return;
+      spr.frames[n] = parseInt(idxIn2.value, 10) || 0;
+      Grog.clearSpriteCache(); Studio.touch(); Studio.renderAll();
+    });
+    addRow.appendChild(nameIn); addRow.appendChild(idxIn2); addRow.appendChild(addB);
+    pane.appendChild(addRow);
+    editor.appendChild(pane);
+
+    insp.appendChild(el('<h2>Sheet sprites</h2>'));
+    insp.appendChild(el('<div class="hint">This sprite’s frames are cells cut from an imported image — edit the art in your favorite external tool and re-import the asset; everything referencing it updates. Mirroring still works: an actor anim can be <b>{ref:"walkR", flip:true}</b>.</div>'));
+  }
 
   function importPNG(e, spr) {
     const f = e.target.files[0];

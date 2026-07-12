@@ -16,6 +16,7 @@
     grad: { x: 'n', y: 'n', w: 'n', h: 'n', from: 'color', to: 'color' },
     scatter: { x: 'n', y: 'n', w: 'n', h: 'n', c: 'color', n: 'n', seed: 'n', size: 'n?' },
     sprite: { id: 'sprite', x: 'n', y: 'n', frame: 't?', scale: 'n?', flip: 'b?' },
+    image: { id: 'asset', x: 'n', y: 'n', w: 'n?', h: 'n?', flip: 'b?' },
   };
 
   Studio.editors.room = function (editor, insp, id) {
@@ -101,7 +102,7 @@
     addOp.appendChild(opSel);
     const addOpBtn = el('<button>+ Add paint op</button>');
     addOpBtn.addEventListener('click', () => {
-      const defaults = { fill: { op: 'fill', c: '1' }, rect: { op: 'rect', x: 40, y: 40, w: 60, h: 40, c: '4' }, poly: { op: 'poly', pts: [60, 60, 120, 60, 90, 100], c: '4' }, ellipse: { op: 'ellipse', x: 80, y: 60, rx: 20, ry: 12, c: '4' }, line: { op: 'line', x1: 20, y1: 20, x2: 90, y2: 40, c: 'l' }, grad: { op: 'grad', x: 0, y: 0, w: 320, h: 60, from: '1', to: 'f' }, scatter: { op: 'scatter', x: 0, y: 0, w: 320, h: 40, c: 'l', n: 30, seed: 7 }, sprite: { op: 'sprite', id: Object.keys(P.sprites)[0] || '', x: 60, y: 60 } };
+      const defaults = { fill: { op: 'fill', c: '1' }, rect: { op: 'rect', x: 40, y: 40, w: 60, h: 40, c: '4' }, poly: { op: 'poly', pts: [60, 60, 120, 60, 90, 100], c: '4' }, ellipse: { op: 'ellipse', x: 80, y: 60, rx: 20, ry: 12, c: '4' }, line: { op: 'line', x1: 20, y1: 20, x2: 90, y2: 40, c: 'l' }, grad: { op: 'grad', x: 0, y: 0, w: 320, h: 60, from: '1', to: 'f' }, scatter: { op: 'scatter', x: 0, y: 0, w: 320, h: 40, c: 'l', n: 30, seed: 7 }, sprite: { op: 'sprite', id: Object.keys(P.sprites)[0] || '', x: 60, y: 60 }, image: { op: 'image', id: Object.keys(P.assets || {})[0] || '', x: 0, y: 0 } };
       room.paint = room.paint || [];
       room.paint.push(defaults[opSel.value]);
       ed.selOp = room.paint.length - 1; ed.selH = -1;
@@ -158,6 +159,7 @@
 
     // ---------- canvas rendering & interaction ----------
     const ctx = cv.getContext('2d');
+    if (Object.keys(P.assets || {}).length) Grog.loadAssets(P).then(() => draw());
     function draw() {
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, Grog.VIEW_H);
@@ -333,6 +335,7 @@
         btn.addEventListener('click', () => Studio.jsonModal('Polygon points [x,y,x,y,…]', op.pts || [], (v) => { op.pts = v; Studio.renderAll(); }));
         panel.appendChild(field(key, btn));
       } else if (kind === 'sprite') panel.appendChild(field(key, Studio.select(Object.keys(Studio.state.project.sprites), op[key], (v) => { op[key] = v; Studio.touch(); Studio.renderAll(); })));
+      else if (kind === 'asset') panel.appendChild(field(key, Studio.select(Object.keys(Studio.state.project.assets || {}), op[key], (v) => { op[key] = v; Studio.touch(); Studio.renderAll(); })));
       else if (kind === 'b?') panel.appendChild(field(key, check(op[key], (v) => { if (v) op[key] = true; else delete op[key]; Studio.touch(); Studio.renderAll(); })));
       else if (kind === 't?') panel.appendChild(field(key, text(op[key], (v) => { if (v) op[key] = v; else delete op[key]; Studio.touch(); Studio.renderAll(); })));
       else panel.appendChild(field(key, num(op[key], (v) => { if (v === undefined && kind.endsWith('?')) delete op[key]; else op[key] = v; Studio.touch(); Studio.renderAll(); })));
