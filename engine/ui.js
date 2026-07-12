@@ -49,13 +49,24 @@
           return;
         }
       }
-      let best = null;
+      let best = null, bestArea = Infinity;
       for (const h of this.room.hotspots || []) {
         if (!this.hotspotVisible(h)) continue;
-        let hit = false;
-        if (h.rect) hit = rx >= h.rect[0] && rx <= h.rect[0] + h.rect[2] && ry >= h.rect[1] && ry <= h.rect[1] + h.rect[3];
-        else if (h.poly) hit = Grog.pointInPoly(rx, ry, h.poly);
-        if (hit) best = h; // later hotspots win (drawn on top)
+        let hit = false, area = Infinity;
+        if (h.rect) {
+          hit = rx >= h.rect[0] && rx <= h.rect[0] + h.rect[2] && ry >= h.rect[1] && ry <= h.rect[1] + h.rect[3];
+          area = h.rect[2] * h.rect[3];
+        } else if (h.poly) {
+          hit = Grog.pointInPoly(rx, ry, h.poly);
+          let minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+          for (let i = 0; i < h.poly.length; i += 2) {
+            minX = Math.min(minX, h.poly[i]); maxX = Math.max(maxX, h.poly[i]);
+            minY = Math.min(minY, h.poly[i + 1]); maxY = Math.max(maxY, h.poly[i + 1]);
+          }
+          area = (maxX - minX) * (maxY - minY);
+        }
+        // most specific (smallest) hotspot wins on overlap
+        if (hit && area <= bestArea) { best = h; bestArea = area; }
       }
       if (best) this.hover = { type: 'hotspot', h: best, name: this.hotspotName(best), default: best.default || 'look' };
     } else {

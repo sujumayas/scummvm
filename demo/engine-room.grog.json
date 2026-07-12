@@ -12,7 +12,7 @@
 
   "actors": {
     "deb": {
-      "name": "Deb Ugger", "color": "l", "speed": 46, "sprite": "deb",
+      "name": "Deb Ugger", "color": "l", "speed": 62, "sprite": "deb",
       "anims": {
         "idle": { "frames": ["idleD"], "fps": 2 },
         "idleD": { "frames": ["idleD"], "fps": 2 },
@@ -473,7 +473,7 @@
     "dock": {
       "name": "Asset Dock", "music": "dock", "w": 480,
       "paint": [
-        { "op": "grad", "x": 0, "y": 0, "w": 480, "h": 50, "from": "1", "to": "f" },
+        { "op": "grad", "x": 0, "y": 0, "w": 480, "h": 62, "from": "1", "to": "f" },
         { "op": "scatter", "x": 0, "y": 0, "w": 480, "h": 42, "c": "l", "n": 40, "seed": 7 },
         { "op": "ellipse", "x": 430, "y": 18, "rx": 9, "ry": 9, "c": "k" },
         { "op": "ellipse", "x": 427, "y": 16, "rx": 3, "ry": 3, "c": "m" },

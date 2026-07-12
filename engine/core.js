@@ -170,8 +170,7 @@
     async start() {
       const meta = this.project.meta || {};
       this._makeActors();
-      const start = meta.start || {};
-      await this.gotoRoom(start.room || Object.keys(this.project.rooms)[0], start.x, start.y, { instant: true });
+      // the loop must run before any script awaits (say/sleep resolve off this.time)
       this._last = performance.now();
       const loop = (t) => {
         if (this._ended) return;
@@ -182,7 +181,8 @@
         this._raf = requestAnimationFrame(loop);
       };
       this._raf = requestAnimationFrame(loop);
-      // intro script
+      const start = meta.start || {};
+      await this.gotoRoom(start.room || Object.keys(this.project.rooms)[0], start.x, start.y, { instant: true });
       if (this.project.scripts && this.project.scripts.$intro) this.runScript(this.project.scripts.$intro);
     }
 
@@ -285,7 +285,8 @@
       }
       if (room.music !== undefined) this.audio.playMusic(room.music ? (P.music || {})[room.music] : null, room.music);
       if (!opts.instant) await this.fadeTo(0, 2.5);
-      if (room.enter && !opts.noEnter) await this.runScript(room.enter);
+      // enter scripts run as their own cutscene; don't block the room switch on them
+      if (room.enter && !opts.noEnter) this.runScript(room.enter);
     }
 
     fadeTo(target, speed) {

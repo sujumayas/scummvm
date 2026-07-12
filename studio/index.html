@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grog Studio</title>
+<link rel="stylesheet" href="studio.css">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div id="logo">GROG<span>STUDIO</span></div>
+    <div id="project-title" title="Project title">untitled</div>
+    <div class="spacer"></div>
+    <button id="btn-new">New</button>
+    <button id="btn-open">Open…</button>
+    <button id="btn-save">Save file</button>
+    <button id="btn-check">Check</button>
+    <button id="btn-play" class="primary">▶ Playtest</button>
+    <input type="file" id="file-open" accept=".json,.grog.json" hidden>
+  </header>
+  <nav id="sidebar"></nav>
+  <main id="editor"></main>
+  <aside id="inspector"></aside>
+  <footer id="statusbar">Grog Studio — everything is saved to your browser automatically. Use “Save file” to download the project JSON.</footer>
+</div>
+<div id="modal-root"></div>
+<div id="play-overlay" hidden>
+  <div id="play-frame-wrap">
+    <div id="play-bar"><span>Playtest</span><div class="spacer"></div><button id="btn-play-restart">Restart</button><button id="btn-play-close">✕ Close</button></div>
+    <iframe id="play-frame" src="about:blank"></iframe>
+  </div>
+</div>
+<!-- engine (reused for rendering previews + playtest export) -->
+<script src="../engine/core.js"></script>
+<script src="../engine/render.js"></script>
+<script src="../engine/walk.js"></script>
+<script src="../engine/audio.js"></script>
+<script src="../engine/script.js"></script>
+<script src="../engine/ui.js"></script>
+<script src="../engine/boot.js"></script>
+<!-- studio -->
+<script src="studio-core.js"></script>
+<script src="studio-room.js"></script>
+<script src="studio-sprite.js"></script>
+<script src="studio-data.js"></script>
+<script src="studio-export.js"></script>
+<script>Studio.boot();</script>
+</body>
+</html>
