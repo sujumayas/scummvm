@@ -280,6 +280,7 @@
         <div class="row" style="margin-top:8px">
           <button id="btn-load-demo" class="primary">Load demo: Escape from the Engine Room (drawn pixels)</button>
           <button id="btn-load-demo2" class="primary">Load demo: The Case of the Missing Pixel (imported assets)</button>
+          <button id="btn-load-demo3" class="primary">Load demo: The Song of the Bearded Whalephant (full asset game)</button>
           <button id="btn-start-blank">Start a blank project</button>
         </div>
         <h3>What is this?</h3>
@@ -287,6 +288,7 @@
         Edit rooms, pixel art, scripts, dialogs and music — then play instantly and export a single HTML file that runs anywhere.</p></div>`));
       $('#btn-load-demo', editor).addEventListener('click', () => Studio.loadDemo());
       $('#btn-load-demo2', editor).addEventListener('click', () => Studio.loadDemo('../demo/missing-pixel.grog.json'));
+      $('#btn-load-demo3', editor).addEventListener('click', () => Studio.loadDemo('../demo/whalephant.grog.json'));
       $('#btn-start-blank', editor).addEventListener('click', () => { Studio.state.project = Studio.blankProject(); Studio.touch(); Studio.renderAll(); });
       return;
     }

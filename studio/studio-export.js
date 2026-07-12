@@ -68,7 +68,7 @@ ${engine}
 <\/script>
 <script>
 window.GROG_PROJECT = ${JSON.stringify(P)};
-Grog.boot(window.GROG_PROJECT, '#game');
+Grog.boot(window.GROG_PROJECT, '#game').then((e) => { window.engine = e; });
 <\/script>
 </body>
 </html>`;

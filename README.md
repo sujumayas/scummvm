@@ -95,6 +95,32 @@ through this pipeline. Play it: `play.html?project=demo/missing-pixel.grog.json`
 | ![Noir office](docs/screenshots/noir-office.png) | ![Asset editor](docs/screenshots/studio-asset-editor.png) |
 | Imported-asset demo (AI-generated art) | The asset editor: slice, resize, set-as-background |
 
+## The flagship demo: a full investigation game from a story
+
+**The Song of the Bearded Whalephant** (`demo/whalephant.grog.json`) adapts the
+short story *La canción del ballenofante barbado* (Tharmathesis, 2026) into a
+complete investigation adventure — and every piece of art in it was
+AI-generated and imported through the Studio's asset pipeline (3 painted
+backgrounds, a 5-frame character sheet, 4 creature/NPC sprites, 8 item icons).
+
+Professor Tharma has slept for three days, smiling, unwakeable. Playing his
+niece Marina, you work a real evidence chain: journal → key behind the star
+chart → locked drawer → wax cylinder → the phonograph wakes *el artefacto* —
+then follow his trail down into a prehistoric submarine jungle to interview
+the only witnesses: Ictio the fisher ("went up like bubble — pop of light —
+gone") and the Bearded Whalephant itself, who will teach you the rising verse…
+once you do something about a thousand years of beard tangles. The finale is
+investigation-gated dialog: you convince the professor's dream-self with the
+clues you actually found, then escort him to the Threshold Dragon — because
+being swallowed, it turns out, is simply how a dream lets you go.
+
+| | |
+|---|---|
+| ![Study](docs/screenshots/whale-study.png) | ![Abyss](docs/screenshots/whale-abyss.png) |
+| The investigation hub | Interviewing a witness the size of a chapel |
+| ![Celestial](docs/screenshots/whale-celestial.png) | ![End](docs/screenshots/whale-end.png) |
+| The layer above | Case closed — gently |
+
 ## The engine, technically
 
 320×200 native (integer-scaled, room viewport 320×144 — SCUMM's own layout),
@@ -137,7 +163,7 @@ lines of code and wants you to know it.
 engine/        the Grog runtime (7 files, no deps)
 studio/        Grog Studio authoring app (no deps)
 play.html      player shell (demo / ?project=url / Studio playtest host)
-demo/          engine-room.grog.json (drawn) · missing-pixel.grog.json (imported assets)
+demo/          engine-room (drawn) · missing-pixel (assets) · whalephant (full asset game)
 tools/         check-project.js — CLI project linter (node tools/check-project.js file)
 docs/          ARCHITECTURE.md · AUTHORING.md · RESEARCH.md · screenshots
 ```
