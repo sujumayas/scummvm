@@ -1,0 +1,1046 @@
+{
+  "meta": {
+    "title": "Escape from the Engine Room",
+    "author": "Grog Studio",
+    "version": "1.0",
+    "textSpeed": 16,
+    "start": { "room": "engine", "x": 250, "y": 128 }
+  },
+  "player": "deb",
+  "flags": {},
+  "vars": {},
+
+  "actors": {
+    "deb": {
+      "name": "Deb Ugger", "color": "l", "speed": 46, "sprite": "deb",
+      "anims": {
+        "idle": { "frames": ["idleD"], "fps": 2 },
+        "idleD": { "frames": ["idleD"], "fps": 2 },
+        "idleR": { "frames": ["idleR"], "fps": 2 },
+        "idleL": { "ref": "idleR", "flip": true },
+        "idleU": { "frames": ["idleU"], "fps": 2 },
+        "walkR": { "frames": ["walkR1", "walkR2", "walkR3", "walkR4"], "fps": 8 },
+        "walkL": { "ref": "walkR", "flip": true },
+        "walkD": { "frames": ["walkD1", "idleD", "walkD2", "idleD"], "fps": 8 },
+        "walkU": { "frames": ["walkU1", "idleU", "walkU2", "idleU"], "fps": 8 },
+        "talk": { "frames": ["idleD", "talkD2"], "fps": 7 }
+      }
+    },
+    "sal": {
+      "name": "Sal the Asset Salesman", "color": "5", "speed": 30, "sprite": "sal", "default": "talk",
+      "anims": {
+        "idle": { "frames": ["idleD"], "fps": 2 },
+        "talk": { "frames": ["idleD", "talkD2"], "fps": 7 }
+      },
+      "verbs": {
+        "talk": [{ "do": "dialog", "id": "sal_talk" }],
+        "look": [{ "do": "say", "text": "That jacket has more clashing colors than the palette technically allows." }],
+        "give pixels": [
+          { "do": "lose", "item": "pixels" },
+          { "do": "say", "actor": "sal", "text": "Three beautiful pixels! Red, green, and... whatever that one is." },
+          { "do": "say", "actor": "sal", "text": "Here's your frame. Factory fresh. The factory closed in 1997, but still." },
+          { "do": "give", "item": "frame" },
+          { "do": "say", "text": "It's... still warm? I have several questions." }
+        ],
+        "give chicken": [{ "do": "say", "actor": "sal", "text": "I SELL those. Aisle four. Try to keep up." }],
+        "give mug": [{ "do": "say", "actor": "sal", "text": "A mug? In THIS economy? No refunds, no mugs." }],
+        "give": [{ "do": "say", "actor": "sal", "text": "Hmm. I'll give you nothing for it. Deal? No? Suit yourself." }],
+        "pickup": [{ "do": "say", "actor": "sal", "text": "HA! Sal cannot be acquired. Many have tried." }]
+      }
+    },
+    "tree": {
+      "name": "Dialog Tree", "color": "9", "speed": 0, "sprite": "blank",
+      "anims": { "idle": { "frames": ["b"], "fps": 1 } }
+    },
+    "tentacle": {
+      "name": "Suspiciously Purple Tentacle", "color": "t", "speed": 0, "sprite": "tentacle", "default": "talk",
+      "anims": {
+        "idle": { "frames": ["sway1", "sway2"], "fps": 3 },
+        "talk": { "frames": ["sway1", "sway2"], "fps": 7 }
+      },
+      "verbs": {
+        "talk": [{ "do": "dialog", "id": "tentacle_talk" }],
+        "look": [{ "do": "say", "text": "It's a legally distinct purple appendage." }],
+        "give chicken": [{ "do": "say", "actor": "tentacle", "text": "I have no arms. This is just cruel." }],
+        "give": [{ "do": "say", "actor": "tentacle", "text": "Unless it's world domination, I don't want it." }]
+      }
+    }
+  },
+
+  "items": {
+    "chicken": {
+      "name": "rubber chicken", "icon": "icon_chicken",
+      "verbs": {
+        "look": [{ "do": "say", "text": "A rubber chicken with a USB dongle in the middle. Industry standard." }],
+        "use mug": [{ "do": "say", "text": "The chicken does not fit in the mug. Worst crossover ever." }]
+      }
+    },
+    "chicken_grog": {
+      "name": "grog-filled chicken", "icon": "icon_chicken_grog",
+      "verbs": {
+        "look": [{ "do": "say", "text": "A rubber chicken full of grog. My résumé just keeps improving." }]
+      }
+    },
+    "mug": {
+      "name": "grog mug", "icon": "icon_mug",
+      "verbs": {
+        "look": [{ "do": "say", "text": "A regulation grog mug. 40% mug, 60% future holes." }]
+      }
+    },
+    "pixels": {
+      "name": "three loose pixels", "icon": "icon_pixels",
+      "verbs": {
+        "look": [{ "do": "say", "text": "Three loose pixels: red, green, and one that identifies as 'magenta-ish'." }],
+        "use frame": [{ "do": "say", "text": "Tempting, but the frame is display-only." }]
+      }
+    },
+    "frame": {
+      "name": "fresh frame", "icon": "icon_frame",
+      "verbs": {
+        "look": [{ "do": "say", "text": "A certified pre-owned frame. Only dropped once." }]
+      }
+    },
+    "semicolon": {
+      "name": "semicolon", "icon": "icon_semicolon",
+      "verbs": {
+        "look": [{ "do": "say", "text": "A semicolon. The difference between shipping and a syntax error." }],
+        "use chicken": [{ "do": "say", "text": "I refuse to punctuate poultry." }]
+      }
+    }
+  },
+
+  "sprites": {
+    "blank": { "w": 1, "frames": { "b": ["."] } },
+    "deb": {
+      "w": 12,
+      "frames": {
+        "idleD": ["....0000....", "...000000...", "..00000000..", "..00777700..", "..07171770..", "..07777770..", "...077770...", "....0770....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110.0110.", ".0000..0000."],
+        "talkD2": ["....0000....", "...000000...", "..00000000..", "..00777700..", "..07171770..", "..07722770..", "...077770...", "....0770....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110.0110.", ".0000..0000."],
+        "idleR": ["....0000....", "...000000...", "..00000000..", "..00007770..", "..00007170..", "..00007770..", "...000770...", "....0770....", "...0jjjj0...", "..0jjjjj0...", "..0jjjjjj0..", "..0jjjjjj0..", "..0jjjjjj0..", "..07jjjj70..", "..0jjjjj0...", "..0011110...", "..0111100...", "..0111100...", "...01100....", "...01100....", "...01100....", "...00000...."],
+        "walkR1": ["....0000....", "...000000...", "..00000000..", "..00007770..", "..00007170..", "..00007770..", "...000770...", "....0770....", "...0jjjj0...", "..0jjjjj0...", "..0jjjjjj0..", "..0jjjjjj0..", "..0jjjjjj0..", "..07jjjj70..", "..0jjjjj0...", "..0011110...", "..0111100...", "..0111100...", "..011010....", "..0110110...", ".0110.0110..", ".0000.0000.."],
+        "walkR2": ["....0000....", "...000000...", "..00000000..", "..00007770..", "..00007170..", "..00007770..", "...000770...", "....0770....", "...0jjjj0...", "..0jjjjj0...", "..0jjjjjj0..", "..0jjjjjj0..", "..0jjjjjj0..", "..07jjjj70..", "..0jjjjj0...", "..0011110...", "..0111100...", "..0111100...", "...01100....", "...01100....", "...01100....", "...00000...."],
+        "walkR3": ["....0000....", "...000000...", "..00000000..", "..00007770..", "..00007170..", "..00007770..", "...000770...", "....0770....", "...0jjjj0...", "..0jjjjj0...", "..0jjjjjj0..", "..0jjjjjj0..", "..0jjjjjj0..", "..07jjjj70..", "..0jjjjj0...", "..0011110...", "..0111100...", "..0111100...", "..0110110...", ".01100.110..", ".0110..0110.", ".0000..0000."],
+        "walkR4": ["....0000....", "...000000...", "..00000000..", "..00007770..", "..00007170..", "..00007770..", "...000770...", "....0770....", "...0jjjj0...", "..0jjjjj0...", "..0jjjjjj0..", "..0jjjjjj0..", "..0jjjjjj0..", "..07jjjj70..", "..0jjjjj0...", "..0011110...", "..0111100...", "..0111100...", "...01100....", "...01100....", "...01100....", "...00000...."],
+        "idleU": ["....0000....", "...000000...", "..00000000..", "..00000000..", "..00000000..", "..00000000..", "...000000...", "....0000....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110.0110.", ".0000..0000."],
+        "walkU1": ["....0000....", "...000000...", "..00000000..", "..00000000..", "..00000000..", "..00000000..", "...000000...", "....0000....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110......", ".0000..0000."],
+        "walkU2": ["....0000....", "...000000...", "..00000000..", "..00000000..", "..00000000..", "..00000000..", "...000000...", "....0000....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", ".....0110...", ".0000..0000."],
+        "walkD1": ["....0000....", "...000000...", "..00000000..", "..00777700..", "..07171770..", "..07777770..", "...077770...", "....0770....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110......", ".0000..0000."],
+        "walkD2": ["....0000....", "...000000...", "..00000000..", "..00777700..", "..07171770..", "..07777770..", "...077770...", "....0770....", "...0jjjj0...", "..0jjjjjj0..", ".0jjjjjjjj0.", ".0j0jjjj0j0.", ".0j0jjjj0j0.", ".070jjjj070.", "..0jjjjjj0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", ".....0110...", ".0000..0000."]
+      }
+    },
+    "sal": {
+      "w": 12,
+      "frames": {
+        "idleD": ["....llll....", "...llllll...", "..00000000..", "..00777700..", "..07171770..", "..07777770..", "...077770...", "....0770....", "...05r5r0...", "..05r5r5r0..", ".05r5r5r5r0.", ".0r5r5r5r50.", ".05r5r5r5r0.", ".070r5r5070.", "..05r5r5r0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110.0110.", ".0000..0000."],
+        "talkD2": ["....llll....", "...llllll...", "..00000000..", "..00777700..", "..07171770..", "..07722770..", "...077770...", "....0770....", "...05r5r0...", "..05r5r5r0..", ".05r5r5r5r0.", ".0r5r5r5r50.", ".05r5r5r5r0.", ".070r5r5070.", "..05r5r5r0..", "..00111100..", "..01111110..", "..01111110..", "..0110.0110.", "..0110.0110.", "..0110.0110.", ".0000..0000."]
+      }
+    },
+    "tentacle": {
+      "w": 10,
+      "frames": {
+        "sway1": ["...qqqq...", "..qqqqqq..", ".qqqqqqqq.", ".qqqqqqqq.", ".qq0qq0qq.", ".qqqqqqqq.", ".qq0000qq.", ".qqqqqqqq.", ".qqqqqqqq.", "..qqqqqq..", "..qqqqqq..", "...qqqq...", "...qqqq...", "..qqqq....", ".qqqq.....", ".qqq......"],
+        "sway2": ["...qqqq...", "..qqqqqq..", ".qqqqqqqq.", ".qqqqqqqq.", ".qq0qq0qq.", ".qqqqqqqq.", ".qq0000qq.", ".qqqqqqqq.", ".qqqqqqqq.", "..qqqqqq..", "..qqqqqq..", "...qqqq...", "...qqqq...", "....qqqq..", ".....qqqq.", "......qqq."]
+      }
+    },
+    "icon_chicken": {
+      "w": 10,
+      "frames": { "i": ["....88....", "...8888...", "..888888..", ".l8888888.", ".88888888.", "..888888..", "...8..8...", "...5..5..."] }
+    },
+    "icon_chicken_grog": {
+      "w": 10,
+      "frames": { "i": ["....88....", "...8898...", "..889988..", ".l8899888.", ".88999888.", "..899988..", "...9..9...", "...5..5..."] }
+    },
+    "icon_mug": {
+      "w": 10,
+      "frames": { "i": [".nnnnnn...", ".n7777n.n.", ".n7777nnn.", ".n7777n.n.", ".n7777n...", ".nnnnnn...", "..........", ".........."] }
+    },
+    "icon_pixels": {
+      "w": 10,
+      "frames": { "i": ["..........", "..rr..jj..", "..rr..jj..", "..........", "....99....", "....99....", "..tt......", "..tt......"] }
+    },
+    "icon_frame": {
+      "w": 10,
+      "frames": { "i": ["llllllllll", "lkkkkkkkkl", "lkkjjkkkkl", "lkkkkkkkkl", "lkkkkjjkkl", "lkkkkkkkkl", "llllllllll", ".0.0.0.0.."] }
+    },
+    "icon_semicolon": {
+      "w": 10,
+      "frames": { "i": ["....88....", "....88....", "..........", "....88....", "....88....", ".....8....", "....8.....", ".........."] }
+    },
+    "icon_bug": {
+      "w": 8,
+      "frames": { "i": [".0....0.", "..rrrr..", ".rrrrrr.", "..rrrr..", ".0....0."] }
+    }
+  },
+
+  "rooms": {
+    "engine": {
+      "name": "Engine Room", "music": "theme",
+      "paint": [
+        { "op": "grad", "x": 0, "y": 0, "w": 320, "h": 40, "from": "1", "to": "e" },
+        { "op": "rect", "x": 0, "y": 40, "w": 320, "h": 64, "c": "e" },
+        { "op": "rect", "x": 0, "y": 6, "w": 320, "h": 5, "c": "p" },
+        { "op": "rect", "x": 0, "y": 16, "w": 320, "h": 4, "c": "o" },
+        { "op": "ellipse", "x": 40, "y": 8, "rx": 3, "ry": 3, "c": "n" },
+        { "op": "ellipse", "x": 200, "y": 8, "rx": 3, "ry": 3, "c": "n" },
+        { "op": "ellipse", "x": 280, "y": 18, "rx": 3, "ry": 3, "c": "r" },
+        { "op": "rect", "x": 92, "y": 20, "w": 10, "h": 26, "c": "p" },
+        { "op": "rect", "x": 0, "y": 104, "w": 320, "h": 40, "c": "3" },
+        { "op": "rect", "x": 0, "y": 104, "w": 320, "h": 2, "c": "2" },
+        { "op": "line", "x1": 32, "y1": 106, "x2": 32, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 64, "y1": 106, "x2": 64, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 96, "y1": 106, "x2": 96, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 128, "y1": 106, "x2": 128, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 160, "y1": 106, "x2": 160, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 192, "y1": 106, "x2": 192, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 224, "y1": 106, "x2": 224, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 256, "y1": 106, "x2": 256, "y2": 144, "c": "2" },
+        { "op": "line", "x1": 288, "y1": 106, "x2": 288, "y2": 144, "c": "2" },
+        { "op": "ellipse", "x": 96, "y": 44, "rx": 34, "ry": 7, "c": "n" },
+        { "op": "rect", "x": 62, "y": 44, "w": 68, "h": 62, "c": "o" },
+        { "op": "rect", "x": 82, "y": 66, "w": 28, "h": 30, "c": "p" },
+        { "op": "rect", "x": 106, "y": 78, "w": 3, "h": 7, "c": "n" },
+        { "op": "ellipse", "x": 74, "y": 56, "rx": 5, "ry": 5, "c": "k" },
+        { "op": "line", "x1": 74, "y1": 56, "x2": 77, "y2": 53, "c": "r" },
+        { "op": "scatter", "x": 64, "y": 46, "w": 64, "h": 58, "c": "n", "n": 24, "seed": 4 },
+        { "op": "rect", "x": 66, "y": 106, "w": 8, "h": 6, "c": "p" },
+        { "op": "rect", "x": 118, "y": 106, "w": 8, "h": 6, "c": "p" },
+        { "op": "rect", "x": 147, "y": 86, "w": 10, "h": 6, "c": "p" },
+        { "op": "rect", "x": 168, "y": 52, "w": 26, "h": 34, "c": "7" },
+        { "op": "line", "x1": 168, "y1": 52, "x2": 194, "y2": 52, "c": "3" },
+        { "op": "line", "x1": 168, "y1": 86, "x2": 194, "y2": 86, "c": "3" },
+        { "op": "line", "x1": 168, "y1": 52, "x2": 168, "y2": 86, "c": "3" },
+        { "op": "line", "x1": 194, "y1": 52, "x2": 194, "y2": 86, "c": "3" },
+        { "op": "ellipse", "x": 181, "y": 62, "rx": 5, "ry": 5, "c": "5" },
+        { "op": "rect", "x": 173, "y": 71, "w": 16, "h": 2, "c": "n" },
+        { "op": "rect", "x": 175, "y": 75, "w": 12, "h": 2, "c": "n" },
+        { "op": "rect", "x": 178, "y": 79, "w": 7, "h": 2, "c": "n" },
+        { "op": "rect", "x": 208, "y": 66, "w": 38, "h": 4, "c": "4" },
+        { "op": "rect", "x": 211, "y": 70, "w": 3, "h": 7, "c": "3" },
+        { "op": "rect", "x": 240, "y": 70, "w": 3, "h": 7, "c": "3" },
+        { "op": "rect", "x": 258, "y": 58, "w": 12, "h": 28, "c": "n" },
+        { "op": "rect", "x": 252, "y": 68, "w": 7, "h": 3, "c": "m" },
+        { "op": "ellipse", "x": 264, "y": 56, "rx": 4, "ry": 3, "c": "r" },
+        { "op": "rect", "x": 250, "y": 90, "w": 22, "h": 15, "c": "4" },
+        { "op": "line", "x1": 250, "y1": 94, "x2": 272, "y2": 94, "c": "3" },
+        { "op": "line", "x1": 250, "y1": 100, "x2": 272, "y2": 100, "c": "3" },
+        { "op": "ellipse", "x": 240, "y": 32, "rx": 11, "ry": 11, "c": "g" },
+        { "op": "ellipse", "x": 240, "y": 32, "rx": 8, "ry": 8, "c": "j" },
+        { "op": "rect", "x": 234, "y": 28, "w": 7, "h": 2, "c": "k" },
+        { "op": "rect", "x": 288, "y": 58, "w": 28, "h": 54, "c": "4" },
+        { "op": "line", "x1": 288, "y1": 58, "x2": 288, "y2": 112, "c": "3" },
+        { "op": "line", "x1": 315, "y1": 58, "x2": 315, "y2": 112, "c": "3" },
+        { "op": "line", "x1": 288, "y1": 58, "x2": 315, "y2": 58, "c": "3" },
+        { "op": "ellipse", "x": 302, "y": 76, "rx": 6, "ry": 6, "c": "g" },
+        { "op": "rect", "x": 4, "y": 62, "w": 22, "h": 50, "c": "1" },
+        { "op": "line", "x1": 4, "y1": 62, "x2": 26, "y2": 62, "c": "2" },
+        { "op": "line", "x1": 4, "y1": 62, "x2": 4, "y2": 112, "c": "2" },
+        { "op": "line", "x1": 26, "y1": 62, "x2": 26, "y2": 112, "c": "2" },
+        { "op": "scatter", "x": 4, "y": 62, "w": 22, "h": 50, "c": "c", "n": 18, "seed": 12 },
+        { "op": "rect", "x": 166, "y": 28, "w": 12, "h": 88, "c": "p", "z": 116 },
+        { "op": "line", "x1": 168, "y1": 28, "x2": 168, "y2": 116, "c": "n", "z": 116 }
+      ],
+      "walk": [
+        [8, 108, 164, 108, 164, 142, 8, 142],
+        [180, 108, 312, 108, 312, 142, 180, 142],
+        [164, 120, 180, 120, 180, 142, 164, 142]
+      ],
+      "scale": { "y1": 104, "s1": 0.82, "y2": 142, "s2": 1.0 },
+      "enter": [
+        { "do": "if", "cond": "!intro_done", "then": [
+          { "do": "set", "flag": "intro_done" },
+          { "do": "wait", "ms": 400 },
+          { "do": "title", "text": "GROG ENGINE presents", "ms": 2200 },
+          { "do": "title", "text": "ESCAPE FROM THE ENGINE ROOM", "sub": "or: The Secret of the Monkey Island Build Server", "ms": 3000 },
+          { "do": "say", "text": "Ugh. One minute I'm filing bug #1337 — 'game engine eats QA tester' —" },
+          { "do": "say", "text": "...and the next, I'm INSIDE the engine. The bug report writes itself. From within." },
+          { "do": "say", "actor": "narrator", "text": "Restart the Main Loop to escape. The boiler requires: fuel, a fresh frame, and terminating punctuation." },
+          { "do": "say", "text": "Fuel, frame, semicolon. How hard can it be?" },
+          { "do": "say", "actor": "narrator", "text": "(Achievement unlocked: Famous Last Words.)" }
+        ] }
+      ],
+      "hotspots": [
+        {
+          "id": "pipes", "name": "pipes", "rect": [0, 4, 320, 18], "at": [200, 116], "noWalk": false,
+          "verbs": {
+            "look": [{ "do": "say", "text": "The RENDER pipe and the AUDIO pipe. Do NOT cross the streams." }],
+            "pull": [{ "do": "say", "text": "The pipes are hard-coded. Literally. Someone wrote them in pen." }],
+            "use": [{ "do": "say", "text": "I'd need a plumber. Wrong franchise." }]
+          }
+        },
+        {
+          "id": "boiler", "name": "Main Loop boiler", "rect": [60, 40, 72, 68], "at": [96, 118], "state": "closed",
+          "states": {
+            "closed": {
+              "verbs": {
+                "open": [{ "do": "sound", "id": "open" }, { "do": "state", "hotspot": "boiler", "state": "open" }, { "do": "say", "text": "The firebox swings open with a dramatic creak. Nice foley work." }],
+                "look": [{ "do": "say", "text": "The Main Loop boiler. Cold as a code freeze." }],
+                "use chicken_grog": [{ "do": "say", "text": "I should open the firebox first. Even grog respects encapsulation." }],
+                "use semicolon": [{ "do": "say", "text": "The firebox is closed. Punctuation can't fix everything." }],
+                "use frame": [{ "do": "say", "text": "Firebox first. Then frame. Order of operations." }]
+              }
+            },
+            "open": {
+              "paint": [{ "op": "rect", "x": 84, "y": 68, "w": 24, "h": 26, "c": "1" }],
+              "verbs": {
+                "close": [{ "do": "sound", "id": "close" }, { "do": "state", "hotspot": "boiler", "state": "closed" }, { "do": "say", "text": "Closed. The boiler sighs." }],
+                "look": [{ "do": "say", "text": "The firebox is open. It hungers for fuel, frames, and punctuation." }],
+                "use chicken_grog": [
+                  { "do": "lose", "item": "chicken_grog" },
+                  { "do": "sound", "id": "splash" },
+                  { "do": "set", "flag": "boiler_fueled" },
+                  { "do": "say", "text": "GLUG. GLUG. GLUG. The boiler burps politely." },
+                  { "do": "give", "item": "chicken", "silent": true },
+                  { "do": "say", "text": "The chicken survives. The chicken always survives." }
+                ],
+                "use semicolon": [
+                  { "do": "lose", "item": "semicolon" },
+                  { "do": "sound", "id": "ding" },
+                  { "do": "set", "flag": "boiler_semicolon" },
+                  { "do": "say", "text": "The semicolon slots into the infinite loop. Somewhere, a while(true) finally rests." }
+                ],
+                "use frame": [
+                  { "do": "lose", "item": "frame" },
+                  { "do": "sound", "id": "teleport" },
+                  { "do": "set", "flag": "boiler_frame" },
+                  { "do": "say", "text": "The fresh frame primes the render pump. Smells like new tab." }
+                ],
+                "use mug": [{ "do": "say", "text": "The boiler drinks grog, not mugs. It has standards." }],
+                "use chicken": [{ "do": "say", "text": "An EMPTY chicken? The boiler is insulted." }]
+              }
+            }
+          },
+          "verbs": {
+            "pickup": [{ "do": "say", "text": "It weighs as much as technical debt." }],
+            "push": [{ "do": "say", "text": "The boiler pushes back. Emotionally." }]
+          }
+        },
+        {
+          "id": "gauge", "name": "progress gauge", "rect": [68, 50, 13, 13], "at": [80, 118],
+          "verbs": {
+            "look": [
+              { "cond": "boiler_fueled && boiler_semicolon && boiler_frame", "actions": [{ "do": "say", "text": "Gauge reads 100%. A round number. Suspicious, but I'll take it." }] },
+              { "cond": "boiler_fueled || boiler_semicolon || boiler_frame", "actions": [{ "do": "say", "text": "The needle twitched! For this engine, that's practically a sprint." }] },
+              { "cond": "", "actions": [{ "do": "say", "text": "The needle reads ZERO. Same as my frame budget." }] }
+            ]
+          }
+        },
+        {
+          "id": "lever", "name": "SHIP IT lever", "rect": [146, 66, 16, 26], "at": [152, 118], "state": "up",
+          "states": {
+            "up": { "paint": [{ "op": "line", "x1": 152, "y1": 86, "x2": 158, "y2": 70, "c": "n", "w": 2 }, { "op": "ellipse", "x": 158, "y": 70, "rx": 3, "ry": 3, "c": "r" }] },
+            "down": { "paint": [{ "op": "line", "x1": 152, "y1": 86, "x2": 158, "y2": 98, "c": "n", "w": 2 }, { "op": "ellipse", "x": 158, "y": 98, "rx": 3, "ry": 3, "c": "r" }] }
+          },
+          "verbs": {
+            "look": [{ "do": "say", "text": "The Master Lever. The label says 'SHIP IT'. The subtext says 'please'." }],
+            "push": [{ "do": "say", "text": "It's a PULL lever. The engine is pedantic about input methods." }],
+            "pull": [
+              { "do": "if", "cond": "engine_running", "then": [{ "do": "say", "text": "We shipped. It's over. Please, no sequels." }], "else": [
+                { "do": "if", "cond": "boiler_fueled && boiler_semicolon && boiler_frame", "then": [
+                  { "do": "call", "script": "ending" }
+                ], "else": [
+                  { "do": "random", "of": [
+                    [{ "do": "sound", "id": "error" }, { "do": "say", "actor": "narrator", "text": "CRITICAL: MainLoop not ready. Have you tried grog?" }],
+                    [{ "do": "sound", "id": "error" }, { "do": "say", "text": "Nothing. The boiler wants its three offerings: fuel, frame, punctuation." }],
+                    [{ "do": "sound", "id": "error" }, { "do": "say", "text": "A distant voice whispers: 'works on my machine'." }]
+                  ] }
+                ] }
+              ] }
+            ]
+          }
+        },
+        {
+          "id": "poster", "name": "motivational poster", "rect": [168, 52, 26, 34], "at": [181, 116],
+          "verbs": {
+            "look": [{ "do": "say", "text": "Employee of the Month: the LOOK AT verb. Nine months running." }],
+            "push": [{ "do": "say", "text": "Behind the poster: solid wall. This isn't that kind of game. ...Is it? No. It is not." }]
+          }
+        },
+        {
+          "id": "mug_shelf", "name": "grog mug", "rect": [212, 52, 24, 14], "at": [224, 116], "state": "there",
+          "states": {
+            "there": {
+              "paint": [{ "op": "sprite", "id": "icon_mug", "x": 216, "y": 58 }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "A grog mug. The pinnacle of disposable container technology." }],
+                "pickup": [{ "do": "state", "hotspot": "mug_shelf", "state": "gone" }, { "do": "give", "item": "mug" }, { "do": "say", "text": "One regulation grog mug. What could possibly go wrong?" }]
+              }
+            },
+            "gone": {
+              "name": "empty shelf",
+              "verbs": { "look": [{ "do": "say", "text": "The shelf misses its mug already." }] }
+            }
+          }
+        },
+        {
+          "id": "tap", "name": "coolant tap", "rect": [252, 54, 20, 34], "at": [262, 118],
+          "verbs": {
+            "look": [{ "do": "say", "text": "'COOLANT', says the label. 'GROG XD', says the barrel below. The barrel is winning." }],
+            "use": [{ "do": "say", "text": "I need a container. Preferably one that won't dissolve." }],
+            "open": [{ "do": "say", "text": "Not without a container. I've seen what this stuff does to floors." }],
+            "use mug": [
+              { "do": "sound", "id": "splash" },
+              { "do": "lose", "item": "mug" },
+              { "do": "set", "flag": "mug_dissolved" },
+              { "do": "say", "text": "The grog dissolves the mug in 1.3 seconds." },
+              { "do": "say", "actor": "narrator", "text": "A new personal record, notes the barrel." }
+            ],
+            "use chicken": [
+              { "do": "sound", "id": "splash" },
+              { "do": "lose", "item": "chicken" },
+              { "do": "give", "item": "chicken_grog" },
+              { "do": "say", "text": "The rubber chicken fills with grog and shows no signs of dissolving." },
+              { "do": "say", "text": "Finally. A use for this thing. Somewhere, Ron Gilbert nods." }
+            ],
+            "use chicken_grog": [{ "do": "say", "text": "It's already full. Greed is a bug, not a feature." }]
+          }
+        },
+        {
+          "id": "barrel", "name": "grog barrel", "rect": [248, 88, 26, 18], "at": [260, 120],
+          "verbs": {
+            "look": [{ "do": "say", "text": "GROG XD — the extra-dissolvent blend. Now with 20% more X." }],
+            "open": [{ "do": "say", "text": "The barrel is sealed by union rules." }]
+          }
+        },
+        {
+          "id": "toolbox", "name": "toolbox", "rect": [32, 108, 30, 16], "at": [46, 128], "state": "closed",
+          "states": {
+            "closed": {
+              "paint": [{ "op": "rect", "x": 34, "y": 112, "w": 26, "h": 10, "c": "r" }, { "op": "line", "x1": 44, "y1": 110, "x2": 52, "y2": 110, "c": "n" }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "A toolbox. Property of the Build Engineer. Missing since the Great Refactor." }],
+                "open": [{ "do": "sound", "id": "open" }, { "do": "state", "hotspot": "toolbox", "state": "open" }, { "do": "say", "text": "The toolbox creaks open." }]
+              }
+            },
+            "open": {
+              "paint": [{ "op": "rect", "x": 34, "y": 104, "w": 26, "h": 5, "c": "s" }, { "op": "rect", "x": 34, "y": 114, "w": 26, "h": 8, "c": "r" }, { "op": "rect", "x": 36, "y": 115, "w": 22, "h": 6, "c": "1" }, { "op": "rect", "x": 40, "y": 116, "w": 7, "h": 4, "c": "8" }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "Inside: one rubber chicken, one USB dongle, zero tools. Checks out." }],
+                "pickup": [{ "do": "state", "hotspot": "toolbox", "state": "empty" }, { "do": "give", "item": "chicken" }, { "do": "say", "text": "A rubber chicken with a USB dongle in the middle. Finally, some real engineering." }],
+                "close": [{ "do": "sound", "id": "close" }, { "do": "state", "hotspot": "toolbox", "state": "closed" }]
+              }
+            },
+            "empty": {
+              "paint": [{ "op": "rect", "x": 34, "y": 104, "w": 26, "h": 5, "c": "s" }, { "op": "rect", "x": 34, "y": 114, "w": 26, "h": 8, "c": "r" }, { "op": "rect", "x": 36, "y": 115, "w": 22, "h": 6, "c": "1" }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "Empty, except for a sticker: 'WORKS ON MY MACHINE'." }],
+                "close": [{ "do": "sound", "id": "close" }, { "do": "state", "hotspot": "toolbox", "state": "closed" }]
+              }
+            }
+          }
+        },
+        {
+          "id": "bug", "name": "bug", "rect": [196, 116, 12, 9], "at": [202, 130],
+          "paint": [{ "op": "sprite", "id": "icon_bug", "x": 198, "y": 118 }],
+          "verbs": {
+            "look": [{ "do": "say", "text": "A bug. It's been in the engine since 1990. At this point it's load-bearing." }],
+            "pickup": [{ "do": "say", "text": "It's not a feature yet. Give it time." }],
+            "talk": [{ "do": "say", "text": "Hello, bug." }, { "do": "say", "actor": "narrator", "text": "The bug files a report about YOU." }],
+            "use": [{ "do": "say", "text": "Not without a repro case." }]
+          }
+        },
+        {
+          "id": "column", "name": "column", "rect": [164, 28, 16, 88], "at": [172, 126],
+          "verbs": {
+            "look": [{ "do": "say", "text": "A structural walk-behind column." }, { "do": "say", "actor": "narrator", "text": "(You can walk behind it. This cost three entire lines of code.)" }]
+          }
+        },
+        {
+          "id": "porthole", "name": "porthole", "rect": [228, 20, 24, 24], "at": [240, 114],
+          "verbs": {
+            "look": [{ "do": "say", "text": "Outside: the skybox. It's a JPEG of a nicer game." }],
+            "open": [{ "do": "say", "text": "And let the z-fighting in? No thanks." }]
+          }
+        },
+        {
+          "id": "door_dock", "name": "shipping door", "rect": [286, 54, 32, 60], "at": [298, 120], "dir": "R",
+          "verbs": {
+            "look": [{ "do": "say", "text": "The shipping door. Beyond it: the Asset Dock, where content goes to be monetized." }],
+            "open": [{ "do": "goto", "room": "dock", "x": 24, "y": 124, "dir": "R" }],
+            "walkto": [{ "do": "goto", "room": "dock", "x": 24, "y": 124, "dir": "R" }]
+          }
+        },
+        {
+          "id": "hatch_grove", "name": "overgrown hatch", "rect": [2, 58, 26, 56], "at": [20, 120], "dir": "L",
+          "verbs": {
+            "look": [{ "do": "say", "text": "A hatch overgrown with vines. The air smells of... nested conversation." }],
+            "walkto": [{ "do": "goto", "room": "grove", "x": 290, "y": 126, "dir": "L" }],
+            "open": [{ "do": "goto", "room": "grove", "x": 290, "y": 126, "dir": "L" }]
+          }
+        }
+      ]
+    },
+
+    "dock": {
+      "name": "Asset Dock", "music": "dock", "w": 480,
+      "paint": [
+        { "op": "grad", "x": 0, "y": 0, "w": 480, "h": 50, "from": "1", "to": "f" },
+        { "op": "scatter", "x": 0, "y": 0, "w": 480, "h": 42, "c": "l", "n": 40, "seed": 7 },
+        { "op": "ellipse", "x": 430, "y": 18, "rx": 9, "ry": 9, "c": "k" },
+        { "op": "ellipse", "x": 427, "y": 16, "rx": 3, "ry": 3, "c": "m" },
+        { "op": "poly", "pts": [30, 62, 95, 62, 100, 50, 104, 62, 130, 62, 124, 72, 34, 72], "c": "1" },
+        { "op": "line", "x1": 100, "y1": 50, "x2": 100, "y2": 40, "c": "1" },
+        { "op": "rect", "x": 0, "y": 60, "w": 480, "h": 40, "c": "g" },
+        { "op": "rect", "x": 0, "y": 60, "w": 480, "h": 3, "c": "f" },
+        { "op": "scatter", "x": 0, "y": 66, "w": 480, "h": 30, "c": "j", "n": 60, "seed": 3 },
+        { "op": "rect", "x": 0, "y": 100, "w": 480, "h": 44, "c": "4" },
+        { "op": "rect", "x": 0, "y": 100, "w": 480, "h": 3, "c": "3" },
+        { "op": "line", "x1": 40, "y1": 103, "x2": 40, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 80, "y1": 103, "x2": 80, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 120, "y1": 103, "x2": 120, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 160, "y1": 103, "x2": 160, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 200, "y1": 103, "x2": 200, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 240, "y1": 103, "x2": 240, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 280, "y1": 103, "x2": 280, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 320, "y1": 103, "x2": 320, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 360, "y1": 103, "x2": 360, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 400, "y1": 103, "x2": 400, "y2": 144, "c": "3" },
+        { "op": "line", "x1": 440, "y1": 103, "x2": 440, "y2": 144, "c": "3" },
+        { "op": "rect", "x": 20, "y": 94, "w": 6, "h": 10, "c": "3" },
+        { "op": "rect", "x": 150, "y": 94, "w": 6, "h": 10, "c": "3" },
+        { "op": "rect", "x": 300, "y": 94, "w": 6, "h": 10, "c": "3" },
+        { "op": "rect", "x": 452, "y": 94, "w": 6, "h": 10, "c": "3" },
+        { "op": "rect", "x": 60, "y": 76, "w": 30, "h": 24, "c": "6" },
+        { "op": "line", "x1": 60, "y1": 76, "x2": 90, "y2": 76, "c": "v" },
+        { "op": "line", "x1": 60, "y1": 88, "x2": 90, "y2": 88, "c": "v" },
+        { "op": "line", "x1": 75, "y1": 76, "x2": 75, "y2": 100, "c": "v" },
+        { "op": "rect", "x": 95, "y": 84, "w": 22, "h": 16, "c": "6" },
+        { "op": "line", "x1": 95, "y1": 92, "x2": 117, "y2": 92, "c": "v" },
+        { "op": "rect", "x": 360, "y": 92, "w": 70, "h": 14, "c": "4" },
+        { "op": "line", "x1": 360, "y1": 92, "x2": 430, "y2": 92, "c": "6" },
+        { "op": "rect", "x": 360, "y": 66, "w": 3, "h": 26, "c": "3" },
+        { "op": "rect", "x": 427, "y": 66, "w": 3, "h": 26, "c": "3" },
+        { "op": "rect", "x": 356, "y": 58, "w": 11, "h": 8, "c": "r" },
+        { "op": "rect", "x": 367, "y": 58, "w": 11, "h": 8, "c": "l" },
+        { "op": "rect", "x": 378, "y": 58, "w": 11, "h": 8, "c": "r" },
+        { "op": "rect", "x": 389, "y": 58, "w": 11, "h": 8, "c": "l" },
+        { "op": "rect", "x": 400, "y": 58, "w": 11, "h": 8, "c": "r" },
+        { "op": "rect", "x": 411, "y": 58, "w": 11, "h": 8, "c": "l" },
+        { "op": "rect", "x": 422, "y": 58, "w": 12, "h": 8, "c": "r" },
+        { "op": "rect", "x": 370, "y": 74, "w": 50, "h": 12, "c": "7" },
+        { "op": "rect", "x": 374, "y": 77, "w": 30, "h": 2, "c": "5" },
+        { "op": "rect", "x": 374, "y": 81, "w": 40, "h": 2, "c": "5" }
+      ],
+      "walk": [[8, 106, 470, 106, 470, 140, 8, 140]],
+      "scale": { "y1": 106, "s1": 0.9, "y2": 140, "s2": 1.0 },
+      "actors": {
+        "sal": { "x": 395, "y": 124, "dir": "D" },
+        "tentacle": { "x": 216, "y": 100, "dir": "D", "hidden": true }
+      },
+      "enter": [
+        { "do": "if", "cond": "!dock_seen", "then": [
+          { "do": "set", "flag": "dock_seen" },
+          { "do": "say", "text": "The Asset Dock. Everything the engine loads ships through here." },
+          { "do": "say", "text": "This room SCROLLS, by the way. Very expensive feature. Try to look impressed." }
+        ] }
+      ],
+      "hotspots": [
+        {
+          "id": "door_engine", "name": "engine room door", "rect": [0, 88, 16, 52], "at": [16, 124], "dir": "L",
+          "verbs": {
+            "look": [{ "do": "say", "text": "Back to the Engine Room, where the magic segfaults." }],
+            "walkto": [{ "do": "goto", "room": "engine", "x": 296, "y": 120, "dir": "L" }],
+            "open": [{ "do": "goto", "room": "engine", "x": 296, "y": 120, "dir": "L" }]
+          }
+        },
+        {
+          "id": "crates", "name": "asset crates", "rect": [58, 74, 62, 26], "at": [90, 118],
+          "verbs": {
+            "look": [{ "do": "say", "text": "Crates labeled 'SPRITES, ASSORTED, SLIGHTLY DEFECTIVE' and 'TODO: art'." }],
+            "open": [{ "do": "say", "text": "Nailed shut. The nails are also assets. Sal counted them." }],
+            "push": [{ "do": "say", "text": "I'm QA, not logistics." }]
+          }
+        },
+        {
+          "id": "tentacle_crate", "name": "suspicious crate", "rect": [198, 78, 36, 24], "at": [216, 120], "state": "closed",
+          "states": {
+            "closed": {
+              "paint": [
+                { "op": "rect", "x": 200, "y": 80, "w": 32, "h": 20, "c": "6" },
+                { "op": "line", "x1": 200, "y1": 90, "x2": 232, "y2": 90, "c": "v" },
+                { "op": "rect", "x": 206, "y": 83, "w": 20, "h": 5, "c": "7" },
+                { "op": "line", "x1": 208, "y1": 85, "x2": 224, "y2": 85, "c": "3" }
+              ],
+              "verbs": {
+                "look": [{ "do": "say", "text": "The label reads: 'MISC VILLAIN, PURPLE, ONE (1)'. It's... breathing?" }],
+                "open": [
+                  { "do": "sound", "id": "open" },
+                  { "do": "state", "hotspot": "tentacle_crate", "state": "open" },
+                  { "do": "actor", "id": "tentacle", "hidden": false },
+                  { "do": "say", "actor": "tentacle", "text": "FREEDOM! ...This is still the dock, isn't it." },
+                  { "do": "say", "text": "The crate had a tentacle. Of course the crate had a tentacle." }
+                ]
+              }
+            },
+            "open": {
+              "name": "opened crate",
+              "paint": [
+                { "op": "rect", "x": 200, "y": 84, "w": 32, "h": 16, "c": "6" },
+                { "op": "rect", "x": 202, "y": 86, "w": 28, "h": 12, "c": "1" },
+                { "op": "poly", "pts": [232, 84, 244, 72, 248, 78, 234, 88], "c": "6" }
+              ],
+              "verbs": {
+                "look": [{ "do": "say", "text": "An open crate. The packing peanuts are tiny compressed textures." }],
+                "close": [{ "do": "say", "actor": "tentacle", "text": "Try it. I dare you." }]
+              }
+            }
+          }
+        },
+        {
+          "id": "water", "name": "water", "rect": [0, 60, 480, 38], "at": [240, 112], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "The water is one gradient op and one scatter op. Very cost-effective. Very wet." }],
+            "use": [{ "do": "say", "text": "Swim in unallocated memory? Hard pass." }]
+          }
+        },
+        {
+          "id": "ship", "name": "ship", "rect": [28, 44, 104, 28], "at": [80, 112], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "The good ship Dependency. She hasn't shipped in years." }]
+          }
+        },
+        {
+          "id": "moon", "name": "moon", "rect": [418, 8, 24, 22], "at": [420, 112], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "It's just a white ellipse with a gray ellipse on it. Gorgeous." }]
+          }
+        },
+        {
+          "id": "sign", "name": "Sal's sign", "rect": [368, 72, 54, 16], "at": [394, 120],
+          "verbs": {
+            "look": [{ "do": "say", "text": "'SAL'S SLIGHTLY USED ASSETS — Every pixel has a past.'" }]
+          }
+        },
+        {
+          "id": "beach_path", "name": "path to the beach", "rect": [464, 88, 16, 52], "at": [462, 124], "dir": "R",
+          "verbs": {
+            "look": [{ "do": "say", "text": "A sunny path to Boundary Beach, where the map ends and the lawyers begin." }],
+            "walkto": [{ "do": "goto", "room": "beach", "x": 28, "y": 126, "dir": "R" }]
+          }
+        }
+      ]
+    },
+
+    "beach": {
+      "name": "Boundary Beach", "music": "beach",
+      "paint": [
+        { "op": "grad", "x": 0, "y": 0, "w": 320, "h": 60, "from": "j", "to": "k" },
+        { "op": "ellipse", "x": 262, "y": 18, "rx": 10, "ry": 10, "c": "8" },
+        { "op": "rect", "x": 0, "y": 58, "w": 320, "h": 2, "c": "g" },
+        { "op": "rect", "x": 0, "y": 60, "w": 320, "h": 32, "c": "g" },
+        { "op": "scatter", "x": 0, "y": 62, "w": 320, "h": 28, "c": "j", "n": 46, "seed": 3 },
+        { "op": "scatter", "x": 0, "y": 64, "w": 320, "h": 10, "c": "l", "n": 10, "seed": 8 },
+        { "op": "grad", "x": 0, "y": 92, "w": 320, "h": 52, "from": "6", "to": "7" },
+        { "op": "rect", "x": 0, "y": 90, "w": 320, "h": 3, "c": "5" },
+        { "op": "scatter", "x": 0, "y": 100, "w": 320, "h": 40, "c": "6", "n": 40, "seed": 21 },
+        { "op": "rect", "x": 118, "y": 127, "w": 4, "h": 8, "c": "b" },
+        { "op": "rect", "x": 119, "y": 125, "w": 2, "h": 2, "c": "6" },
+        { "op": "scatter", "x": 306, "y": 62, "w": 12, "h": 78, "c": "k", "n": 14, "seed": 9 },
+        { "op": "poly", "pts": [46, 122, 54, 122, 60, 72, 50, 70], "c": "4", "z": 123 },
+        { "op": "poly", "pts": [38, 66, 56, 58, 74, 66, 58, 72], "c": "a", "z": 123 },
+        { "op": "poly", "pts": [30, 74, 52, 62, 58, 72, 40, 80], "c": "c", "z": 123 },
+        { "op": "poly", "pts": [58, 72, 66, 60, 84, 70, 64, 78], "c": "c", "z": 123 },
+        { "op": "ellipse", "x": 56, "y": 70, "rx": 3, "ry": 3, "c": "3", "z": 123 }
+      ],
+      "walk": [[60, 64, 290, 64, 306, 140, 8, 140]],
+      "scale": { "y1": 64, "s1": 0.25, "y2": 140, "s2": 1.0 },
+      "enter": [
+        { "do": "if", "cond": "!beach_seen", "then": [
+          { "do": "set", "flag": "beach_seen" },
+          { "do": "say", "text": "Boundary Beach. Walk toward the horizon and watch me shrink." },
+          { "do": "say", "text": "It's called 'the scale band'. It's cheaper than 3D and twice as funny." }
+        ] }
+      ],
+      "hotspots": [
+        {
+          "id": "sky", "name": "horizon", "rect": [0, 0, 320, 58], "at": [160, 70], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "From here I can see the skybox seam. Don't tell the art director." }]
+          }
+        },
+        {
+          "id": "sea", "name": "sea", "rect": [0, 58, 320, 32], "at": [160, 96], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "The sea. Endless, blue, and clipped at exactly y=92." }],
+            "use": [{ "do": "say", "text": "I'd swim, but my collision box can't." }]
+          }
+        },
+        {
+          "id": "palm", "name": "palm tree", "rect": [30, 56, 50, 68], "at": [66, 126],
+          "verbs": {
+            "look": [{ "do": "say", "text": "A palm tree. You can walk behind it. Depth sorting: the unsung hero." }],
+            "push": [{ "do": "say", "text": "A coconut declines to fall. It's rigged. Literally — no physics engine." }]
+          }
+        },
+        {
+          "id": "rock", "name": "rock", "rect": [214, 108, 34, 20], "at": [222, 130], "state": "there",
+          "states": {
+            "there": {
+              "paint": [{ "op": "ellipse", "x": 230, "y": 118, "rx": 14, "ry": 9, "c": "o" }, { "op": "ellipse", "x": 226, "y": 115, "rx": 6, "ry": 3, "c": "n" }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "A rock. Suspiciously pushable-looking." }],
+                "push": [
+                  { "do": "sound", "id": "thunk" },
+                  { "do": "state", "hotspot": "rock", "state": "pushed" },
+                  { "do": "show", "hotspot": "loose_pixels" },
+                  { "do": "say", "text": "It moved! Underneath: three loose pixels and one very surprised crab function." }
+                ],
+                "pickup": [{ "do": "say", "text": "It's a rock, not an asset. Well. It IS an asset. But no." }],
+                "pull": [{ "do": "say", "text": "Pushing feels more heroic." }]
+              }
+            },
+            "pushed": {
+              "paint": [{ "op": "ellipse", "x": 258, "y": 120, "rx": 14, "ry": 9, "c": "o" }, { "op": "ellipse", "x": 254, "y": 117, "rx": 6, "ry": 3, "c": "n" }],
+              "verbs": {
+                "look": [{ "do": "say", "text": "The rock, relocated. It seems happier here." }],
+                "push": [{ "do": "say", "text": "It's been through enough." }]
+              }
+            }
+          }
+        },
+        {
+          "id": "loose_pixels", "name": "loose pixels", "rect": [218, 112, 14, 10], "at": [224, 130], "hidden": true,
+          "paint": [
+            { "op": "rect", "x": 220, "y": 114, "w": 2, "h": 2, "c": "r" },
+            { "op": "rect", "x": 225, "y": 117, "w": 2, "h": 2, "c": "9" },
+            { "op": "rect", "x": 229, "y": 113, "w": 2, "h": 2, "c": "t" }
+          ],
+          "verbs": {
+            "look": [{ "do": "say", "text": "Three loose pixels, still warm from the framebuffer." }],
+            "pickup": [
+              { "do": "hide", "hotspot": "loose_pixels" },
+              { "do": "give", "item": "pixels" },
+              { "do": "say", "text": "Three pixels. I'm rich in the worst possible currency." }
+            ]
+          }
+        },
+        {
+          "id": "bottle", "name": "message in a bottle", "rect": [114, 124, 12, 14], "at": [122, 134],
+          "verbs": {
+            "look": [{ "do": "say", "text": "A note inside reads: 'HELP, I'M TRAPPED IN A GAME ENGINE FACTORY.' ...Relatable." }],
+            "pickup": [{ "do": "say", "text": "The bottle is load-bearing. The beach would collapse. Trust me, I'm QA." }],
+            "open": [{ "do": "say", "text": "The cork is a compressed texture. It won't budge." }]
+          }
+        },
+        {
+          "id": "invisible_wall", "name": "invisible wall", "rect": [304, 60, 16, 80], "at": [296, 120], "dir": "R",
+          "verbs": {
+            "look": [{ "do": "say", "text": "The legendary Invisible Wall. The engine's oldest employee." }],
+            "push": [{ "do": "say", "text": "The wall doesn't move. The wall has tenure." }],
+            "use": [{ "do": "sound", "id": "thunk" }, { "do": "say", "text": "OW. Invisible, yes. Intangible, no." }],
+            "talk": [{ "do": "say", "text": "Any comment on the edge of the world?" }, { "do": "say", "actor": "narrator", "text": "The wall declines to comment. It is, after all, just four walk polygon vertices." }]
+          }
+        },
+        {
+          "id": "exit_dock", "name": "path to the dock", "rect": [0, 88, 12, 52], "at": [14, 126], "dir": "L",
+          "verbs": {
+            "look": [{ "do": "say", "text": "Back to the Asset Dock." }],
+            "walkto": [{ "do": "goto", "room": "dock", "x": 456, "y": 124, "dir": "L" }]
+          }
+        }
+      ]
+    },
+
+    "grove": {
+      "name": "Dialog Tree Grove", "music": "grove",
+      "paint": [
+        { "op": "fill", "c": "1" },
+        { "op": "poly", "pts": [0, 0, 320, 0, 320, 34, 160, 46, 0, 40], "c": "c" },
+        { "op": "scatter", "x": 0, "y": 4, "w": 320, "h": 36, "c": "a", "n": 50, "seed": 5 },
+        { "op": "scatter", "x": 0, "y": 10, "w": 320, "h": 44, "c": "8", "n": 14, "seed": 11 },
+        { "op": "line", "x1": 40, "y1": 38, "x2": 40, "y2": 58, "c": "c" },
+        { "op": "line", "x1": 260, "y1": 34, "x2": 260, "y2": 60, "c": "c" },
+        { "op": "rect", "x": 0, "y": 100, "w": 320, "h": 44, "c": "e" },
+        { "op": "scatter", "x": 0, "y": 102, "w": 320, "h": 40, "c": "c", "n": 46, "seed": 6 },
+        { "op": "poly", "pts": [120, 100, 200, 100, 210, 144, 110, 144], "c": "d" },
+        { "op": "poly", "pts": [124, 104, 196, 104, 188, 32, 132, 32], "c": "3" },
+        { "op": "line", "x1": 140, "y1": 100, "x2": 136, "y2": 40, "c": "2" },
+        { "op": "line", "x1": 176, "y1": 98, "x2": 182, "y2": 44, "c": "2" },
+        { "op": "poly", "pts": [104, 108, 124, 100, 128, 108, 108, 114], "c": "3" },
+        { "op": "poly", "pts": [196, 100, 216, 106, 212, 114, 192, 108], "c": "3" },
+        { "op": "poly", "pts": [132, 32, 188, 32, 200, 14, 160, 4, 120, 14], "c": "c" },
+        { "op": "scatter", "x": 124, "y": 6, "w": 72, "h": 26, "c": "a", "n": 30, "seed": 14 },
+        { "op": "ellipse", "x": 148, "y": 58, "rx": 4, "ry": 6, "c": "0" },
+        { "op": "ellipse", "x": 172, "y": 58, "rx": 4, "ry": 6, "c": "0" },
+        { "op": "ellipse", "x": 149, "y": 56, "rx": 1, "ry": 2, "c": "8" },
+        { "op": "ellipse", "x": 173, "y": 56, "rx": 1, "ry": 2, "c": "8" },
+        { "op": "line", "x1": 142, "y1": 50, "x2": 154, "y2": 48, "c": "2" },
+        { "op": "line", "x1": 166, "y1": 48, "x2": 178, "y2": 50, "c": "2" },
+        { "op": "poly", "pts": [150, 78, 170, 78, 166, 84, 154, 84], "c": "0" },
+        { "op": "ellipse", "x": 160, "y": 68, "rx": 3, "ry": 4, "c": "2" },
+        { "op": "ellipse", "x": 58, "y": 118, "rx": 7, "ry": 4, "c": "r" },
+        { "op": "rect", "x": 56, "y": 120, "w": 4, "h": 5, "c": "7" },
+        { "op": "ellipse", "x": 55, "y": 116, "rx": 1, "ry": 1, "c": "l" },
+        { "op": "ellipse", "x": 61, "y": 117, "rx": 1, "ry": 1, "c": "l" },
+        { "op": "ellipse", "x": 70, "y": 124, "rx": 5, "ry": 3, "c": "r" },
+        { "op": "rect", "x": 69, "y": 125, "w": 3, "h": 4, "c": "7" },
+        { "op": "scatter", "x": 20, "y": 60, "w": 280, "h": 50, "c": "8", "n": 8, "seed": 19 }
+      ],
+      "walk": [[24, 108, 296, 108, 296, 140, 24, 140]],
+      "scale": { "y1": 108, "s1": 0.85, "y2": 140, "s2": 1.0 },
+      "actors": { "tree": { "x": 160, "y": 54 } },
+      "enter": [
+        { "do": "if", "cond": "!grove_seen", "then": [
+          { "do": "set", "flag": "grove_seen" },
+          { "do": "say", "text": "A grove. And in the middle... a tree with a FACE." },
+          { "do": "say", "actor": "tree", "text": "I am the DIALOG TREE. All conversation flows through my branches." },
+          { "do": "say", "text": "Of course it talks. Of course it does." }
+        ] }
+      ],
+      "hotspots": [
+        {
+          "id": "tree_hs", "name": "Dialog Tree", "rect": [104, 4, 112, 110], "at": [160, 122], "default": "talk",
+          "verbs": {
+            "talk": [{ "do": "dialog", "id": "tree_talk" }],
+            "look": [{ "do": "say", "text": "A Dialog Tree. Every conversation in the industry was picked from one of these." }],
+            "use": [{ "do": "say", "text": "You don't 'use' a Dialog Tree. You ENDURE it." }],
+            "push": [{ "do": "say", "actor": "tree", "text": "Rude. I have deep roots and deeper grudges." }],
+            "pickup": [{ "do": "say", "actor": "tree", "text": "I am NOT an inventory item. I'm a data structure with feelings." }]
+          }
+        },
+        {
+          "id": "semicolon_drop", "name": "semicolon", "rect": [150, 106, 18, 16], "at": [158, 126], "hidden": true,
+          "paint": [{ "op": "sprite", "id": "icon_semicolon", "x": 152, "y": 106 }],
+          "verbs": {
+            "look": [{ "do": "say", "text": "A gleaming semicolon, nestled in the roots." }],
+            "pickup": [
+              { "do": "hide", "hotspot": "semicolon_drop" },
+              { "do": "give", "item": "semicolon" },
+              { "do": "say", "text": "One semicolon, slightly used. I will guard it with my life." }
+            ]
+          }
+        },
+        {
+          "id": "mushrooms", "name": "mushrooms", "rect": [48, 110, 30, 18], "at": [64, 130],
+          "verbs": {
+            "look": [{ "do": "say", "text": "Save points. Obsolete since autosave. They're bitter about it." }],
+            "pickup": [{ "do": "say", "text": "They hiss: 'F5 killed our whole industry.' I back away slowly." }],
+            "talk": [{ "do": "say", "text": "How's retirement, guys?" }, { "do": "say", "actor": "narrator", "text": "The mushrooms reminisce about 1997 in tiny, bitter voices." }]
+          }
+        },
+        {
+          "id": "canopy", "name": "canopy", "rect": [0, 0, 320, 46], "at": [160, 112], "noWalk": true,
+          "verbs": {
+            "look": [{ "do": "say", "text": "The canopy glows with option-fruits. Some are grayed out. Requirements not met." }]
+          }
+        },
+        {
+          "id": "exit_engine", "name": "way back", "rect": [304, 80, 16, 60], "at": [294, 126], "dir": "R",
+          "verbs": {
+            "look": [{ "do": "say", "text": "Back to the Engine Room." }],
+            "walkto": [{ "do": "goto", "room": "engine", "x": 24, "y": 122, "dir": "R" }]
+          }
+        }
+      ]
+    }
+  },
+
+  "dialogs": {
+    "sal_talk": {
+      "start": "root",
+      "nodes": {
+        "root": {
+          "options": [
+            { "text": "What exactly are you selling?", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "sal", "text": "Only the finest certified pre-owned assets! Sprites with one careful owner!" },
+              { "do": "say", "actor": "sal", "text": "Idle animations, barely idled! And today only: a gently used walk cycle. It limps, but that's CHARACTER." }
+            ] },
+            { "text": "I need a fresh frame for the render pump.", "next": "root", "actions": [
+              { "do": "say", "actor": "sal", "text": "A FRESH frame? Ooh. Pricey. Three pixels, non-negotiable." },
+              { "do": "say", "actor": "sal", "text": "Loose ones, mind you. I don't take framebuffer credit." },
+              { "do": "set", "flag": "sal_price_known" }
+            ] },
+            { "text": "Where do I find loose pixels?", "cond": "sal_price_known", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "sal", "text": "Boundary Beach, past the dock. Pixels wash up under the rocks." },
+              { "do": "say", "actor": "sal", "text": "Dead pixels float. Live ones hide. Bring a rock-pushing attitude." }
+            ] },
+            { "text": "Three pixels?! That's robbery!", "cond": "sal_price_known", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "sal", "text": "Robbery? These are ARTISANAL pixels. Hand-placed. Locally sourced." },
+              { "do": "say", "actor": "sal", "text": "Fine. Three pixels and I throw in a free compliment: you have LOVELY collision bounds." }
+            ] },
+            { "text": "Where am I, exactly?", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "sal", "text": "The Asset Dock! Everything the engine loads ships through here." },
+              { "do": "say", "actor": "sal", "text": "Twenty years on this dock, and the crates STILL say 'TODO: art'." }
+            ] },
+            { "text": "Goodbye, Sal.", "end": true, "actions": [
+              { "do": "say", "actor": "sal", "text": "Come back anytime! Sal's assets never depreciate! ...Legally I must add: they do." }
+            ] }
+          ]
+        }
+      }
+    },
+
+    "tree_talk": {
+      "start": "root",
+      "nodes": {
+        "root": {
+          "options": [
+            { "text": "Hi. I'm Deb. I need a semicolon.", "cond": "!tree_beaten", "next": "r1", "actions": [
+              { "do": "say", "actor": "tree", "text": "A semicolon! My rarest fruit. It hangs from my highest branch." },
+              { "do": "say", "actor": "tree", "text": "Defeat me in TALK COMBAT and it falls. Insults and comebacks. Classic rules." },
+              { "do": "say", "actor": "tree", "text": "I have more branches than your git repository, small tester. Prepare yourself." }
+            ] },
+            { "text": "Nice bark. Very... textured.", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "tree", "text": "It's a 9-slice. Don't touch it." }
+            ] },
+            { "text": "About that semicolon...", "cond": "tree_beaten", "end": true, "actions": [
+              { "do": "say", "actor": "tree", "text": "Under my roots. Take it and go, before I think of a comeback." }
+            ] },
+            { "text": "Goodbye, tree.", "end": true, "actions": [
+              { "do": "say", "actor": "tree", "text": "Make like YOU, and leave. Wait. That's not how the joke goes." }
+            ] }
+          ]
+        },
+        "r1": {
+          "actions": [{ "do": "say", "actor": "tree", "text": "ROUND ONE! You fight like a QA tester!" }],
+          "options": [
+            { "text": "And you're about as sharp as a rounded corner.", "next": "r2", "actions": [
+              { "do": "say", "actor": "tree", "text": "...Acceptable. ROUND TWO approaches." }
+            ] },
+            { "text": "Oh yeah? Well... shut up!", "next": "r1", "actions": [
+              { "do": "say", "actor": "tree", "text": "Devastating. My sap runs cold. Try again." }
+            ] },
+            { "text": "My mother was a text parser!", "next": "r1", "actions": [
+              { "do": "say", "actor": "tree", "text": "I know. Lovely woman. Terrible grammar. AGAIN!" }
+            ] }
+          ]
+        },
+        "r2": {
+          "actions": [{ "do": "say", "actor": "tree", "text": "ROUND TWO! My canopy has better coverage than your unit tests!" }],
+          "options": [
+            { "text": "Coverage means nothing when half your branches are dead code.", "next": "r3", "actions": [
+              { "do": "say", "actor": "tree", "text": "OOF. Right in the heartwood. FINAL ROUND!" }
+            ] },
+            { "text": "Trees can't even run tests!", "next": "r2", "actions": [
+              { "do": "say", "actor": "tree", "text": "Neither can you, apparently. AGAIN!" }
+            ] },
+            { "text": "That's... that's not even an insult!", "next": "r2", "actions": [
+              { "do": "say", "actor": "tree", "text": "Neither is that. Round two continues!" }
+            ] }
+          ]
+        },
+        "r3": {
+          "actions": [{ "do": "say", "actor": "tree", "text": "FINAL ROUND! I've been version-controlled since before you were a feature request!" }],
+          "options": [
+            { "text": "Then it's time somebody pruned the main branch.", "end": true, "actions": [
+              { "do": "sound", "id": "laugh" },
+              { "do": "say", "actor": "tree", "text": "HA! HAHAHA! *creak* FINE! FINE! You win!" },
+              { "do": "say", "actor": "tree", "text": "One semicolon, as promised. It fell off a for-loop in 1993. Cherish it." },
+              { "do": "set", "flag": "tree_beaten" },
+              { "do": "show", "hotspot": "semicolon_drop" },
+              { "do": "sound", "id": "ding" }
+            ] },
+            { "text": "Version control THIS!", "next": "r3", "actions": [
+              { "do": "say", "actor": "tree", "text": "Compelling. But no. AGAIN!" }
+            ] },
+            { "text": "I... uh... your leaves are ugly?", "next": "r3", "actions": [
+              { "do": "say", "actor": "tree", "text": "My leaves are PROCEDURAL. Round three continues!" }
+            ] }
+          ]
+        }
+      }
+    },
+
+    "tentacle_talk": {
+      "start": "root",
+      "nodes": {
+        "root": {
+          "options": [
+            { "text": "Are you okay? You were in a crate.", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "tentacle", "text": "Okay? OKAY? I've been in shipping since 1993!" },
+              { "do": "say", "actor": "tentacle", "text": "The label says 'MISC VILLAIN'. I am NOT misc. I am PREMIUM villain." }
+            ] },
+            { "text": "You look strangely familiar.", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "tentacle", "text": "I get that a lot. I was ALMOST a star, once. Then the rights lawyers came." },
+              { "do": "say", "actor": "tentacle", "text": "Now I'm 'legally distinct'. It says so on my tag." }
+            ] },
+            { "text": "What do you want out of life?", "once": true, "next": "root", "actions": [
+              { "do": "say", "actor": "tentacle", "text": "World domination. Or a speaking role. At this point, honestly? Either." }
+            ] },
+            { "text": "Bye. Stay... tentacle-y.", "end": true, "actions": [
+              { "do": "say", "actor": "tentacle", "text": "TREMBLE BEFORE ME! ...Please visit again. It gets lonely on the dock." }
+            ] }
+          ]
+        }
+      }
+    }
+  },
+
+  "scripts": {
+    "ending": [
+      { "do": "set", "flag": "engine_running" },
+      { "do": "state", "hotspot": "lever", "state": "down", "room": "engine" },
+      { "do": "face", "dir": "U" },
+      { "do": "say", "text": "Okay. Semicolon: installed. Frame: primed. Grog: ...chickened." },
+      { "do": "say", "text": "Ladies and gentlemen — we SHIP." },
+      { "do": "sound", "id": "teleport" },
+      { "do": "shake", "ms": 700 },
+      { "do": "music", "id": "victory" },
+      { "do": "wait", "ms": 600 },
+      { "do": "say", "actor": "narrator", "text": "Somewhere, a build pipeline turns green for the first time in years." },
+      { "do": "title", "text": "THE ENGINE ROARS TO LIFE", "sub": "(in a cozy, WebAudio sort of way)", "ms": 2800 },
+      { "do": "say", "text": "It compiles! IT COMPILES! Quick, nobody touch anything!" },
+      { "do": "sound", "id": "fanfare" },
+      { "do": "title", "text": "ESCAPE FROM THE ENGINE ROOM", "sub": "A Grog Engine demo — 100% JSON, 0% binary assets", "ms": 3000 },
+      { "do": "say", "actor": "narrator", "text": "Deb was promoted to Senior Semicolon Architect." },
+      { "do": "say", "actor": "narrator", "text": "The tentacle got his spin-off. It was cancelled after one episode." },
+      { "do": "say", "actor": "narrator", "text": "Sal sold this ending to three other games." },
+      { "do": "sound", "id": "fanfare" },
+      { "do": "end", "text": "THE END", "sub": "Made with Grog Studio — now go make your own" }
+    ]
+  },
+
+  "music": {
+    "theme": {
+      "bpm": 100, "steps": 2,
+      "tracks": [
+        { "wave": "square", "vol": 0.1, "notes": "A3 . C4 . E4 . D4 C4 B3 . G3 . A3 . . . A3 . C4 . E4 . G4 E4 D4 . B3 . C4 . . ." },
+        { "wave": "triangle", "vol": 0.18, "notes": "A2 . . . E2 . . . F2 . . . E2 . . . A2 . . . E2 . . . D2 . . . E2 . . ." },
+        { "wave": "noise", "vol": 0.05, "notes": "x . . . x . . . x . . . x . x ." }
+      ]
+    },
+    "dock": {
+      "bpm": 122, "steps": 2,
+      "tracks": [
+        { "wave": "square", "vol": 0.1, "notes": "C4 E4 G4 E4 A4 G4 E4 C4 D4 F4 A4 F4 G4 . E4 . C4 E4 G4 E4 A4 G4 E4 G4 C5 . B4 G4 C5 . . ." },
+        { "wave": "triangle", "vol": 0.18, "notes": "C3 . G2 . A2 . E2 . F2 . C3 . G2 . G2 . C3 . G2 . A2 . E2 . F2 . G2 . C3 . . ." },
+        { "wave": "noise", "vol": 0.05, "notes": "x . x . x . x x x . x . x . x ." }
+      ]
+    },
+    "beach": {
+      "bpm": 88, "steps": 2,
+      "tracks": [
+        { "wave": "triangle", "vol": 0.12, "notes": "E4 . G4 . B4 . A4 . G4 . E4 . D4 . E4 . . . E4 . G4 . A4 . G4 . E4 . D4 . C4 . . ." },
+        { "wave": "triangle", "vol": 0.15, "notes": "C3 . . . A2 . . . F2 . . . G2 . . ." },
+        { "wave": "noise", "vol": 0.03, "notes": "x . . . . . . . x . . . . . . ." }
+      ]
+    },
+    "grove": {
+      "bpm": 80, "steps": 2,
+      "tracks": [
+        { "wave": "square", "vol": 0.08, "notes": "D4 . F4 . Ab4 . F4 . D4 . E4 . F4 . . . D4 . F4 . Ab4 . G4 . F4 . E4 . D4 . . ." },
+        { "wave": "triangle", "vol": 0.16, "notes": "D2 . . . . . . . Bb2 . . . . . . . D2 . . . . . . . A2 . . . . . . ." },
+        { "wave": "noise", "vol": 0.03, "notes": ". . . . x . . . . . . . x . . ." }
+      ]
+    },
+    "victory": {
+      "bpm": 132, "steps": 2,
+      "tracks": [
+        { "wave": "square", "vol": 0.12, "notes": "C4 E4 G4 C5 . G4 C5 E5 . C5 E5 G5 C5 . G4 . A4 C5 E5 A5 . E5 A5 C5 G4 B4 D5 G5 C5 . . ." },
+        { "wave": "triangle", "vol": 0.2, "notes": "C3 . C3 . F2 . F2 . A2 . A2 . G2 . G2 . A2 . A2 . D3 . D3 . G2 . G2 . C3 . . ." },
+        { "wave": "noise", "vol": 0.06, "notes": "x . x x x . x . x . x x x . x x" }
+      ]
+    }
+  },
+
+  "defaults": {
+    "look": ["It's remarkably unremarkable.", "I see nothing special. And I'm a trained observer.", "Yep. That's definitely one of the objects of all time."],
+    "pickup": ["I don't need it. Probably. ...No, I don't need it.", "My inventory has standards.", "That asset is still under license."],
+    "use": ["That doesn't seem to work.", "Nope. Not even with duct tape.", "The engine politely declines."],
+    "open": ["It doesn't open.", "Access denied. It's not even locked, it's just rude."],
+    "close": ["It's as closed as it gets."],
+    "push": ["It won't budge.", "I push. Nothing happens. Story of my career."],
+    "pull": ["Pulling accomplishes remarkably little."],
+    "talk": ["It has nothing to say. Lucky thing.", "I talk. It doesn't. Classic one-sided relationship."],
+    "give": ["It doesn't want my stuff."]
+  }
+}

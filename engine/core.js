@@ -269,7 +269,7 @@
         const placed = (room.actors || {})[id];
         const inRoom = override !== undefined ? override === roomId : !!placed;
         a.roomId = inRoom ? roomId : (override !== undefined ? override : a.roomId === roomId ? null : a.roomId);
-        if (inRoom && placed && !a._moved) { a.x = placed.x; a.y = placed.y; a.dir = placed.dir || 'D'; }
+        if (inRoom && placed && !a._moved) { a.x = placed.x; a.y = placed.y; a.dir = placed.dir || 'D'; a.hidden = !!placed.hidden; }
         const ast = this.roomState(roomId).actors[id];
         if (ast) { if (ast.x !== undefined) { a.x = ast.x; a.y = ast.y; } if (ast.hidden !== undefined) a.hidden = ast.hidden; }
       }
