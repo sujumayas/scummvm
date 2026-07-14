@@ -1,0 +1,33 @@
+# Grog is fully static — no build step. Publish the repo root as-is:
+# index.html (demo gallery), exports/ (single-file demo games),
+# play.html + engine/ + demo/ (the player), studio/ (the authoring tool).
+[build]
+  publish = "."
+  command = ""
+
+# Short shareable URLs for each demo (rewrites, so the URL stays pretty)
+[[redirects]]
+  from = "/whalephant"
+  to = "/exports/song-of-the-bearded-whalephant.html"
+  status = 200
+
+[[redirects]]
+  from = "/engine-room"
+  to = "/exports/escape-from-the-engine-room.html"
+  status = 200
+
+[[redirects]]
+  from = "/missing-pixel"
+  to = "/exports/case-of-the-missing-pixel.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+
+# Screenshots and engine files change rarely; let browsers cache them for a day
+[[headers]]
+  for = "/docs/screenshots/*"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"

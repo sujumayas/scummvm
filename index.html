@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grog — playable demos</title>
+<meta name="description" content="Playable demo games for Grog, a modern platform for classic SCUMM-style point-and-click adventures. No install — they run in your browser.">
+<style>
+  :root {
+    --bg: #140c1c;
+    --panel: #1f1730;
+    --border: #30346d;
+    --text: #deeed6;
+    --dim: #8595a1;
+    --cyan: #6dc2ca;
+    --yellow: #dad45e;
+    --green: #6daa2c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  header { text-align: center; padding: 2rem 0 1rem; }
+  h1 { color: var(--yellow); font-size: 2rem; margin: 0 0 .25rem; letter-spacing: .05em; }
+  h1 .blink { animation: blink 1.2s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  header p { color: var(--dim); margin: .25rem 0; }
+  header a { color: var(--cyan); }
+  .cards { display: grid; gap: 1.5rem; margin-top: 2rem; }
+  .card {
+    background: var(--panel);
+    border: 2px solid var(--border);
+    display: grid;
+    grid-template-columns: 280px 1fr;
+  }
+  .card img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; display: block; }
+  .card .body { padding: 1.1rem 1.25rem; }
+  .card h2 { margin: 0 0 .35rem; font-size: 1.15rem; color: var(--cyan); }
+  .card .tag { color: var(--dim); font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; }
+  .card p { margin: .5rem 0 1rem; font-size: .92rem; }
+  .btn {
+    display: inline-block;
+    background: var(--green);
+    color: #140c1c;
+    text-decoration: none;
+    font-weight: bold;
+    padding: .45rem .9rem;
+    border: 2px solid #deeed6;
+    box-shadow: 3px 3px 0 #05050a;
+  }
+  .btn:hover { background: var(--yellow); }
+  .btn.alt { background: transparent; color: var(--cyan); border-color: var(--border); }
+  .btn.alt:hover { color: var(--yellow); }
+  .actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+  section.more { margin-top: 3rem; border-top: 2px solid var(--border); padding-top: 1.5rem; }
+  section.more h2 { color: var(--yellow); font-size: 1.1rem; }
+  section.more a { color: var(--cyan); }
+  footer { margin-top: 3rem; color: var(--dim); font-size: .85rem; text-align: center; }
+  footer a { color: var(--cyan); }
+  @media (max-width: 700px) {
+    .card { grid-template-columns: 1fr; }
+    .card img { max-height: 200px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>GROG<span class="blink">_</span></h1>
+  <p>A modern platform for classic point-and-click adventures.</p>
+  <p>Three playable demos — no install, they run right here in your browser.</p>
+</header>
+
+<div class="cards">
+
+  <div class="card">
+    <img src="docs/screenshots/whale-abyss.png" alt="The Song of the Bearded Whalephant — interviewing a witness the size of a chapel">
+    <div class="body">
+      <span class="tag">Flagship · full asset game · 3 rooms</span>
+      <h2>The Song of the Bearded Whalephant</h2>
+      <p>Professor Tharma has slept for three days, smiling, unwakeable. Work a
+      real evidence chain, descend into a prehistoric submarine jungle, and
+      interview the only witnesses. Every piece of art AI-generated and imported
+      through the Studio's asset pipeline.</p>
+      <div class="actions">
+        <a class="btn" href="exports/song-of-the-bearded-whalephant.html">&#9654; Play</a>
+        <a class="btn alt" href="play.html?project=demo/whalephant.grog.json">open in player</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <img src="docs/screenshots/engine-room.png" alt="Escape from the Engine Room — the boiler room, 9-verb classic UI">
+    <div class="body">
+      <span class="tag">Classic paint pipeline · 9-verb UI</span>
+      <h2>Escape from the Engine Room</h2>
+      <p>QA tester Deb Ugger files bug #1337 (<em>"game engine eats QA
+      tester"</em>) and is promptly eaten by the game engine. Insult
+      sword-fighting, a tenured Invisible Wall, and a legally distinct purple
+      tentacle. Exercises every engine feature.</p>
+      <div class="actions">
+        <a class="btn" href="exports/escape-from-the-engine-room.html">&#9654; Play</a>
+        <a class="btn alt" href="play.html?project=demo/engine-room.grog.json">open in player</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <img src="docs/screenshots/noir-office.png" alt="The Case of the Missing Pixel — noir office with AI-generated art">
+    <div class="body">
+      <span class="tag">Imported-asset pipeline · one-room noir</span>
+      <h2>The Case of the Missing Pixel</h2>
+      <p>Rae Tracer, P.I. takes the case of a screen with one dead pixel. A
+      one-room noir mystery whose office, trench-coat detective and coffee mug
+      were AI-generated, chroma-keyed and sheet-sliced entirely through the
+      Studio pipeline.</p>
+      <div class="actions">
+        <a class="btn" href="exports/case-of-the-missing-pixel.html">&#9654; Play</a>
+        <a class="btn alt" href="play.html?project=demo/missing-pixel.grog.json">open in player</a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<section class="more">
+  <h2>Make your own</h2>
+  <p><a href="studio/">Open Grog Studio</a> — the browser-based authoring tool:
+  room editor, sprite editor, action scripting, dialog trees, chiptune music,
+  one-click playtest and export. Start blank or load a demo and poke at it.</p>
+  <p>Every demo above is <strong>one self-contained .html file</strong> exported
+  from Studio — save the page and it still runs from a double-click, offline.</p>
+</section>
+
+<footer>
+  <p>Grog Engine · 7 files, ~2,300 lines, zero dependencies · MIT licensed</p>
+  <p><a href="https://github.com/sujumayas/scummvm">Source on GitHub</a> · <a href="docs/AUTHORING.md">Authoring guide</a></p>
+</footer>
+
+</div>
+</body>
+</html>
